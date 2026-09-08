@@ -19,7 +19,8 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   USER_ALREADY_EXISTS: 'มี Staff ID นี้ในระบบแล้ว',
   USER_NOT_FOUND: 'ไม่พบข้อมูลผู้ใช้นี้',
   SERVER_ERROR: 'เกิดข้อผิดพลาดในการประมวลผลของเซิร์ฟเวอร์',
-  NETWORK_ERROR: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ต'
+  NETWORK_ERROR: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ต',
+  TIMEOUT_ERROR: 'การเชื่อมต่อเซิร์ฟเวอร์ใช้เวลานานเกินไป กรุณากดลองใหม่อีกครั้ง'
 };
 
 export function getErrorMessage(codeOrMsg?: string): string {
@@ -31,14 +32,19 @@ export async function api<T>(
   action: string,
   payload: unknown = {},
   token?: string,
-  url: string = DEFAULT_GAS_URL
+  url: string = DEFAULT_GAS_URL,
+  timeoutMs: number = 20000
 ): Promise<T> {
   let response: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // Google Apps Script doPost requires text/plain to prevent CORS preflight OPTIONS failures
+    // Google Apps Script requires text/plain and redirect follow
     response = await fetch(url, {
       method: 'POST',
+      mode: 'cors',
+      redirect: 'follow',
       headers: {
         'Content-Type': 'text/plain;charset=utf-8'
       },
@@ -46,11 +52,18 @@ export async function api<T>(
         action,
         payload,
         token
-      })
+      }),
+      signal: controller.signal
     });
-  } catch (err) {
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error(getErrorMessage('TIMEOUT_ERROR'));
+    }
     console.error('Fetch error:', err);
     throw new Error(getErrorMessage('NETWORK_ERROR'));
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!response.ok) {

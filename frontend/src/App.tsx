@@ -27,12 +27,22 @@ export const AppContent: React.FC = () => {
   if (loading) {
     return (
       <div className="login-wrap">
-        <div className="card" style={{ padding: '32px 48px', textAlign: 'center' }}>
+        <div className="card" style={{ padding: '32px 48px', textAlign: 'center', maxWidth: '400px' }}>
           <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🏥</div>
           <h3 style={{ color: '#0b1f3a' }}>กำลังโหลดระบบ School Nurse...</h3>
           <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '6px' }}>
             กำลังตรวจสอบความถูกต้องของเซสชัน
           </p>
+          <button
+            className="btn btn-outline btn-sm"
+            style={{ marginTop: '16px' }}
+            onClick={() => {
+              localStorage.removeItem('school_nurse_session');
+              window.location.reload();
+            }}
+          >
+            เข้าสู่ระบบใหม่ (หากโหลดนาน)
+          </button>
         </div>
       </div>
     );

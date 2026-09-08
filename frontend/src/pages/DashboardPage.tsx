@@ -24,16 +24,20 @@ export const DashboardPage: React.FC = () => {
     if (!session?.token) return;
     setLoading(true);
     try {
-      const [sumData, trendData, sympData, itemData, lowData, expData] = await Promise.all([
-        api<DashboardSummaryData>('getDashboardSummary', {}, session.token),
-        api<VisitTrendData[]>('getVisitTrend', { days: trendDays }, session.token),
-        api<TopSymptomData[]>('getTopSymptoms', {}, session.token),
-        api<TopItemData[]>('getTopItems', {}, session.token),
-        api<Item[]>('getLowStock', {}, session.token),
-        api<StockLot[]>('getExpiryAlerts', { days: 90 }, session.token)
+      // 1. Fetch summary KPI first
+      const sumData = await api<DashboardSummaryData>('getDashboardSummary', {}, session.token);
+      setSummary(sumData);
+      setLoading(false);
+
+      // 2. Fetch trends and details smoothly
+      const [trendData, sympData, itemData, lowData, expData] = await Promise.all([
+        api<VisitTrendData[]>('getVisitTrend', { days: trendDays }, session.token).catch(() => []),
+        api<TopSymptomData[]>('getTopSymptoms', {}, session.token).catch(() => []),
+        api<TopItemData[]>('getTopItems', {}, session.token).catch(() => []),
+        api<Item[]>('getLowStock', {}, session.token).catch(() => []),
+        api<StockLot[]>('getExpiryAlerts', { days: 90 }, session.token).catch(() => [])
       ]);
 
-      setSummary(sumData);
       setTrends(trendData || []);
       setTopSymptoms(sympData || []);
       setTopItems(itemData || []);

@@ -23,7 +23,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return null;
     }
   });
-  const [loading, setLoading] = useState<boolean>(true);
+
+  // Only show initial loading if there is actually a stored token to verify
+  const [loading, setLoading] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return !!saved;
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     async function verifySession() {
@@ -31,7 +40,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
         return;
       }
+
       try {
+        // Quick verify with 6s timeout so user is never stuck
         const validSession = await api<Session>('getSession', {}, session.token);
         setSession(validSession);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(validSession));
@@ -43,18 +54,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
       }
     }
-    verifySession();
+
+    if (loading) {
+      verifySession();
+    }
   }, []);
 
   const login = async (staffId: string, password: string) => {
-    setLoading(true);
-    try {
-      const s = await api<Session>('login', { staffId: staffId.trim(), password });
-      setSession(s);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-    } finally {
-      setLoading(false);
-    }
+    // Do NOT set loading(true) here — let LoginPage handle button spinner
+    // so LoginPage is never unmounted during login attempt
+    const s = await api<Session>('login', { staffId: staffId.trim(), password });
+    setSession(s);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   };
 
   const logout = async () => {

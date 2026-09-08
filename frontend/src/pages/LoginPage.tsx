@@ -81,10 +81,10 @@ export const LoginPage: React.FC = () => {
           <button
             type="submit"
             className="btn btn-primary"
-            style={{ width: '100%', marginTop: '12px' }}
+            style={{ width: '100%', marginTop: '12px', minHeight: '48px' }}
             disabled={busy}
           >
-            {busy ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'}
+            {busy ? 'กำลังเข้าสู่ระบบ (รอสักครู่)...' : 'เข้าสู่ระบบ'}
           </button>
         </form>
 
