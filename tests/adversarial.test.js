@@ -1,0 +1,4 @@
+const assert=require('assert');
+function validate(q,a){if(!Number.isInteger(q)||q<=0)throw Error('INVALID_QTY');if(q>a)throw Error('INSUFFICIENT_STOCK')}
+function fefo(lots,q,today='2026-01-01'){const e=lots.filter(x=>x.current>0&&x.expiry>=today).sort((a,b)=>a.expiry.localeCompare(b.expiry)||a.id.localeCompare(b.id));if(e.reduce((s,x)=>s+x.current,0)<q)throw Error('INSUFFICIENT_STOCK');let r=[],left=q;for(const x of e){let n=Math.min(left,x.current);if(n)r.push([x.id,n]);left-=n;if(!left)break}return r}
+assert.throws(()=>validate(0,5),/INVALID_QTY/);assert.throws(()=>validate(6,5),/INSUFFICIENT_STOCK/);assert.deepStrictEqual(fefo([{id:'B',expiry:'2027-02-01',current:5},{id:'A',expiry:'2027-01-01',current:3}],6),[['A',3],['B',3]]);assert.throws(()=>fefo([{id:'X',expiry:'2025-01-01',current:9}],1),/INSUFFICIENT_STOCK/);console.log('4 adversarial stock tests passed');
