@@ -243,8 +243,11 @@ export const DispensePage: React.FC = () => {
               .map(
                 (c) => `
               <tr style="border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 6px 0;">${c.genericName || c.tradeName || c.itemCode}</td>
-                <td style="text-align: right; font-weight: 700;">${c.qty} ${c.unit}</td>
+                <td style="padding: 8px 0;">
+                  <div style="font-weight: 700; color: #0f172a;">${c.tradeName || c.genericName}</div>
+                  ${c.tradeName && c.genericName ? `<div style="font-size: 0.85rem; color: #64748b;">${c.genericName}</div>` : ''}
+                </td>
+                <td style="text-align: right; font-weight: 700; vertical-align: top; padding-top: 8px;">${c.qty} ${c.unit}</td>
               </tr>
             `
               )
@@ -287,7 +290,7 @@ export const DispensePage: React.FC = () => {
         items: cart.map((c) => ({
           itemCode: c.itemCode,
           qty: c.qty,
-          itemName: c.genericName || c.tradeName,
+          itemName: c.tradeName && c.genericName ? `${c.tradeName} (${c.genericName})` : (c.tradeName || c.genericName || c.itemCode),
           itemType: c.itemType,
           unit: c.unit
         })),
@@ -503,7 +506,7 @@ export const DispensePage: React.FC = () => {
               <input
                 type="text"
                 className="form-control"
-                placeholder="ค้นหาชื่อยา หรือ รหัสยา..."
+                placeholder="ค้นหาชื่อการค้า หรือ ชื่อสามัญยา..."
                 value={itemSearch}
                 onChange={(e) => setItemSearch(e.target.value)}
               />
@@ -533,13 +536,29 @@ export const DispensePage: React.FC = () => {
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: 600 }}>
-                          {item['Generic Name'] || item['Trade Name']}
-                        </div>
-                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                          รหัส: {item['Item Code']} · คงเหลือ:{' '}
-                          <span style={{ fontWeight: 700, color: isOutOfStock ? '#dc2626' : '#059669' }}>
-                            {stock} {item.Unit}
+                        {item['Trade Name'] && item['Generic Name'] ? (
+                          <>
+                            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0f172a' }}>
+                              {item['Trade Name']}
+                            </div>
+                            <div style={{ fontSize: '0.85rem', color: '#475569', marginTop: '1px' }}>
+                              {item['Generic Name']}
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0f172a' }}>
+                            {item['Trade Name'] || item['Generic Name'] || item['Item Code']}
+                          </div>
+                        )}
+                        <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className={`badge ${item['Item Type'] === 'DRUG' ? 'badge-primary' : 'badge-gray'}`} style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
+                            {item['Item Type'] === 'DRUG' ? 'ยา' : 'เวชภัณฑ์'}
+                          </span>
+                          <span>
+                            คงเหลือ:{' '}
+                            <strong style={{ color: isOutOfStock ? '#dc2626' : '#059669' }}>
+                              {stock} {item.Unit}
+                            </strong>
                           </span>
                         </div>
                       </div>
@@ -584,9 +603,13 @@ export const DispensePage: React.FC = () => {
                 {cart.map((item) => (
                   <div key={item.itemCode} className="cart-item">
                     <div>
-                      <div style={{ fontWeight: 600 }}>{item.genericName || item.tradeName}</div>
-                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                        คงเหลือ: {item.currentStock} {item.unit}
+                      <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                        {item.tradeName && item.genericName
+                          ? `${item.tradeName} (${item.genericName})`
+                          : item.tradeName || item.genericName}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>
+                        คงเหลือในคลัง: {item.currentStock} {item.unit}
                       </div>
                     </div>
 

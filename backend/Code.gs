@@ -389,12 +389,16 @@ function submitDispense_(p,s) {
 
         r[lh['Current Qty']] = after;
 
+        const itemName = (plan.master['Trade Name'] && plan.master['Generic Name'])
+          ? (plan.master['Trade Name'] + ' (' + plan.master['Generic Name'] + ')')
+          : (plan.master['Trade Name'] || plan.master['Generic Name'] || plan.raw.itemName || plan.raw.itemCode || '');
+
         drows.push([
           'DI'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
           visitId,
           String(plan.raw.itemCode),
           String(plan.master['Item Type'] || plan.raw.itemType || ''),
-          String(plan.master['Generic Name'] || plan.master['Trade Name'] || plan.raw.itemName || ''),
+          itemName,
           a.qty,
           String(plan.master.Unit || plan.raw.unit || ''),
           t
