@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Item, StockLot, StockTransactionRecord } from '../types';
 import { api } from '../api';
 import { getDaysUntilExpiry, getStockAlertLevel } from '../domain/stock';
+import { parseItemsInput, ItemImportRow } from '../utils/csvParser';
 import Swal from 'sweetalert2';
 
 export const StockPage: React.FC = () => {
@@ -32,6 +33,14 @@ export const StockPage: React.FC = () => {
   const [adjDelta, setAdjDelta] = useState('');
   const [adjReason, setAdjReason] = useState('');
   const [adjSubmitting, setAdjSubmitting] = useState(false);
+
+  // Import Modal State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [parsedItems, setParsedItems] = useState<ItemImportRow[]>([]);
+  const [parseErrors, setParseErrors] = useState<string[]>([]);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const canMutateStock = isRole(['ADMIN', 'SUPER_ADMIN']);
 
@@ -149,6 +158,72 @@ export const StockPage: React.FC = () => {
     }
   };
 
+  const handleTextChange = (text: string) => {
+    setImportText(text);
+    if (!text.trim()) {
+      setParsedItems([]);
+      setParseErrors([]);
+      return;
+    }
+    const res = parseItemsInput(text);
+    setParsedItems(res.data);
+    setParseErrors(res.errors);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = String(event.target?.result || '');
+      handleTextChange(content);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDownloadTemplate = () => {
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' +
+      'รหัสเวชภัณฑ์,ประเภท,ชื่อสามัญ,ชื่อการค้า,หน่วย,เกณฑ์ขั้นต่ำ,เกณฑ์สูงสุด,ราคาต่อหน่วย\n' +
+      'PARA500,DRUG,Paracetamol 500mg,Tylenol,เม็ด,100,1000,0.50\n' +
+      'AMOX500,DRUG,Amoxicillin 500mg,Amoxil,แคปซูล,50,500,1.50\n' +
+      'GAUZE2X2,MEDICAL_SUPPLY,Gauze sterile 2x2,Gauze,ชิ้น,50,500,2.00\n' +
+      'BETADINE,DRUG,Povidone Iodine 15ml,Betadine,ขวด,10,100,25.00\n';
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', 'items_import_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleConfirmImport = async () => {
+    if (!parsedItems.length || !session?.token) return;
+    setImporting(true);
+    try {
+      const res = await api<{ added: number; updated: number; total: number }>(
+        'importItems',
+        { items: parsedItems },
+        session.token
+      );
+      Swal.fire({
+        icon: 'success',
+        title: 'นำเข้ารายการเวชภัณฑ์สำเร็จ!',
+        html: `เพิ่มใหม่: <b>${res.added}</b> รายการ<br/>อัปเดต: <b>${res.updated}</b> รายการ<br/>รวมทั้งหมด: <b>${res.total}</b> รายการ`,
+        confirmButtonColor: '#0b1f3a'
+      });
+      setShowImportModal(false);
+      setImportText('');
+      setParsedItems([]);
+      setParseErrors([]);
+      loadData();
+    } catch (err: any) {
+      Swal.fire('นำเข้าข้อมูลล้มเหลว', err.message, 'error');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const filteredItems = items.filter((it) => {
     const matchType = itemTypeFilter === 'ALL' || it['Item Type'] === itemTypeFilter;
     const q = itemSearch.toLowerCase().trim();
@@ -162,11 +237,18 @@ export const StockPage: React.FC = () => {
 
   return (
     <div className="main-content">
-      <div style={{ marginBottom: '20px' }}>
-        <h2>คลังยาและเวชภัณฑ์ (Inventory & Stock)</h2>
-        <p style={{ color: '#64748b', fontSize: '0.95rem' }}>
-          จัดการรายการยา เวชภัณฑ์ ตรวจสอบ Lot วันหมดอายุ และบันทึกการรับเข้า/ปรับยอดสต็อก
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h2>คลังยาและเวชภัณฑ์ (Inventory & Stock)</h2>
+          <p style={{ color: '#64748b', fontSize: '0.95rem' }}>
+            จัดการรายการยา เวชภัณฑ์ ตรวจสอบ Lot วันหมดอายุ และบันทึกการรับเข้า/ปรับยอดสต็อก
+          </p>
+        </div>
+        {canMutateStock && (
+          <button className="btn btn-primary" onClick={() => setShowImportModal(true)}>
+            📁 นำเข้ารายการยา/เวชภัณฑ์ (Upload CSV)
+          </button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -614,6 +696,157 @@ export const StockPage: React.FC = () => {
             </table>
           </div>
         </section>
+      )}
+
+      {/* Modal: Import Items */}
+      {showImportModal && (
+        <div className="modal-overlay">
+          <div className="modal-content modal-lg">
+            <div className="card-header">
+              <span className="card-title">📁 นำเข้ารายการยาและเวชภัณฑ์ (Import Items)</span>
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportText('');
+                  setParsedItems([]);
+                  setParseErrors([]);
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '14px' }}>
+              อัปโหลดไฟล์ <code>.csv</code> หรือคัดลอกตารางรายการยา/เวชภัณฑ์จาก Excel หรือ Google Sheets มาวาง
+            </p>
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+              <input
+                type="file"
+                accept=".csv,.tsv,.txt"
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                onChange={handleFileUpload}
+              />
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                📄 เลือกไฟล์ CSV / Text
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={handleDownloadTemplate}
+              >
+                ⬇️ ดาวน์โหลดแม่แบบ CSV ตัวอย่าง
+              </button>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">
+                วางข้อมูลข้อความ (CSV / คัดลอกจาก Excel)
+              </label>
+              <textarea
+                className="form-control"
+                rows={5}
+                placeholder="รหัสเวชภัณฑ์,ประเภท,ชื่อสามัญ,ชื่อการค้า,หน่วย,เกณฑ์ขั้นต่ำ,เกณฑ์สูงสุด,ราคาต่อหน่วย&#10;PARA500,DRUG,Paracetamol 500mg,Tylenol,เม็ด,100,1000,0.50&#10;GAUZE2X2,MEDICAL_SUPPLY,Gauze sterile 2x2,Gauze,ชิ้น,50,500,2.00"
+                value={importText}
+                onChange={(e) => handleTextChange(e.target.value)}
+                style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
+              />
+            </div>
+
+            {/* Error Message */}
+            {parseErrors.length > 0 && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '10px 14px', borderRadius: '6px', color: '#991b1b', fontSize: '0.85rem', marginBottom: '14px' }}>
+                <strong>พบข้อผิดพลาด:</strong>
+                <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                  {parseErrors.map((err, idx) => (
+                    <li key={idx}>{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Preview Section */}
+            {parsedItems.length > 0 && (
+              <div style={{ marginTop: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <strong style={{ fontSize: '0.9rem' }}>
+                    พรีวิวรายการเวชภัณฑ์ที่จะนำเข้า (ทั้งหมด {parsedItems.length} รายการ):
+                  </strong>
+                  <span className="badge badge-primary">{parsedItems.length} รายการ</span>
+                </div>
+
+                <div className="table-responsive" style={{ maxHeight: '220px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                  <table className="table" style={{ fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr>
+                        <th>รหัส</th>
+                        <th>ประเภท</th>
+                        <th>ชื่อสามัญ</th>
+                        <th>ชื่อการค้า</th>
+                        <th>หน่วย</th>
+                        <th style={{ textAlign: 'right' }}>Min - Max</th>
+                        <th style={{ textAlign: 'right' }}>ราคา</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parsedItems.slice(0, 10).map((it, idx) => (
+                        <tr key={idx}>
+                          <td><strong>{it.itemCode}</strong></td>
+                          <td>
+                            <span className={`badge ${it.itemType === 'DRUG' ? 'badge-primary' : 'badge-gray'}`}>
+                              {it.itemType}
+                            </span>
+                          </td>
+                          <td>{it.genericName}</td>
+                          <td>{it.tradeName || '-'}</td>
+                          <td>{it.unit}</td>
+                          <td style={{ textAlign: 'right' }}>{it.minStock} - {it.maxStock}</td>
+                          <td style={{ textAlign: 'right' }}>{it.unitCost.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {parsedItems.length > 10 && (
+                  <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>
+                    * แสดงตัวอย่าง 10 รายการแรกจากทั้งหมด {parsedItems.length} รายการ
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+                disabled={parsedItems.length === 0 || importing}
+                onClick={handleConfirmImport}
+              >
+                {importing ? 'กำลังนำเข้าข้อมูล...' : `ยืนยันนำเข้ารายการ (${parsedItems.length} รายการ)`}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={importing}
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportText('');
+                  setParsedItems([]);
+                  setParseErrors([]);
+                }}
+              >
+                ยกเลิก
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

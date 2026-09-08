@@ -67,7 +67,7 @@ export const AppContent: React.FC = () => {
         )}
         {currentTab === 'students' && <StudentsPage />}
         {currentTab === 'stock' && <StockPage />}
-        {currentTab === 'users' && role === 'SUPER_ADMIN' && <UsersPage />}
+        {currentTab === 'users' && ['ADMIN', 'SUPER_ADMIN'].includes(role) && <UsersPage />}
         {currentTab === 'config' && role === 'SUPER_ADMIN' && <ConfigPage />}
       </main>
 

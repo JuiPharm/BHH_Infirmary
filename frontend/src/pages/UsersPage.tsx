@@ -123,7 +123,7 @@ export const UsersPage: React.FC = () => {
         <div>
           <h2>จัดการผู้ใช้งานระบบ (User Management)</h2>
           <p style={{ color: '#64748b', fontSize: '0.95rem' }}>
-            สร้าง กำหนดสิทธิ์ และควบคุมการเข้าใช้งานระบบห้องพยาบาล (Super Admin เท่านั้น)
+            สร้าง กำหนดสิทธิ์ และควบคุมการเข้าใช้งานระบบห้องพยาบาล (Admin / Super Admin)
           </p>
         </div>
         <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>

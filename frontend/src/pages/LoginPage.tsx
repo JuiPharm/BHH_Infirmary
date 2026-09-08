@@ -37,7 +37,13 @@ export const LoginPage: React.FC = () => {
     <div className="login-wrap">
       <div className="login-card">
         <div className="login-brand">
-          <div className="login-icon">🏥</div>
+          <div style={{ textAlign: 'center', marginBottom: '14px' }}>
+            <img
+              src="https://lh5.googleusercontent.com/d/1r7PM1ogHIbxskvcauVIYaQOfSHXWGncO"
+              alt="Bangkok Hospital Hatyai Logo"
+              style={{ maxHeight: '76px', maxWidth: '100%', objectFit: 'contain' }}
+            />
+          </div>
           <h2>School Nurse System</h2>
           <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '4px' }}>
             ระบบบันทึกการรักษาและจ่ายยาห้องพยาบาล

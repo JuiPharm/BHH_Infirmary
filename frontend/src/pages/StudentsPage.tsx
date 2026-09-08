@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+﻿import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Student, DispenseHeaderRecord } from '../types';
 import { api } from '../api';
+import { parseStudentsInput, StudentImportRow } from '../utils/csvParser';
 import Swal from 'sweetalert2';
 
 export const StudentsPage: React.FC = () => {
-  const { session } = useAuth();
+  const { session, isRole } = useAuth();
   const [query, setQuery] = useState('');
   const [students, setStudents] = useState<Student[]>([]);
   const [searching, setSearching] = useState(false);
@@ -13,6 +14,16 @@ export const StudentsPage: React.FC = () => {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [history, setHistory] = useState<DispenseHeaderRecord[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Import Modal State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [parsedStudents, setParsedStudents] = useState<StudentImportRow[]>([]);
+  const [parseErrors, setParseErrors] = useState<string[]>([]);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const canImport = isRole(['ADMIN', 'SUPER_ADMIN']);
 
   const handleSearch = async () => {
     if (!query.trim() || !session?.token) return;
@@ -59,13 +70,84 @@ export const StudentsPage: React.FC = () => {
     }
   };
 
+  const handleTextChange = (text: string) => {
+    setImportText(text);
+    if (!text.trim()) {
+      setParsedStudents([]);
+      setParseErrors([]);
+      return;
+    }
+    const res = parseStudentsInput(text);
+    setParsedStudents(res.data);
+    setParseErrors(res.errors);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = String(event.target?.result || '');
+      handleTextChange(content);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDownloadTemplate = () => {
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' +
+      'รหัสนักเรียน,ชื่อ,นามสกุล,ระดับชั้น,ห้องเรียน,เพศ\n' +
+      'STD101,สมชาย,ใจดี,ป.1,1,ชาย\n' +
+      'STD102,สมหญิง,รักเรียน,ป.1,2,หญิง\n' +
+      'STD103,อนันต์,สุขใจ,ม.2,3,ชาย\n';
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', 'student_import_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleConfirmImport = async () => {
+    if (!parsedStudents.length || !session?.token) return;
+    setImporting(true);
+    try {
+      const res = await api<{ added: number; updated: number; total: number }>(
+        'importStudents',
+        { students: parsedStudents },
+        session.token
+      );
+      Swal.fire({
+        icon: 'success',
+        title: 'นำเข้าข้อมูลนักเรียนสำเร็จ!',
+        html: `เพิ่มใหม่: <b>${res.added}</b> รายการ<br/>อัปเดต: <b>${res.updated}</b> รายการ<br/>รวมทั้งหมด: <b>${res.total}</b> รายการ`,
+        confirmButtonColor: '#0b1f3a'
+      });
+      setShowImportModal(false);
+      setImportText('');
+      setParsedStudents([]);
+      setParseErrors([]);
+    } catch (err: any) {
+      Swal.fire('นำเข้าข้อมูลล้มเหลว', err.message, 'error');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="main-content">
-      <div style={{ marginBottom: '20px' }}>
-        <h2>ข้อมูลและประวัติการรักษานักเรียน</h2>
-        <p style={{ color: '#64748b', fontSize: '0.95rem' }}>
-          ค้นหาข้อมูลนักเรียนและตรวจสอบประวัติการเข้ารับการรักษาและการจ่ายยาในอดีต
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h2>ข้อมูลและประวัติการรักษานักเรียน</h2>
+          <p style={{ color: '#64748b', fontSize: '0.95rem' }}>
+            ค้นหาข้อมูลนักเรียนและตรวจสอบประวัติการเข้ารับการรักษาและการจ่ายยาในอดีต
+          </p>
+        </div>
+        {canImport && (
+          <button className="btn btn-primary" onClick={() => setShowImportModal(true)}>
+            📁 นำเข้าข้อมูลนักเรียน (Upload CSV)
+          </button>
+        )}
       </div>
 
       <div className="grid-2">
@@ -235,6 +317,151 @@ export const StudentsPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Modal: Import Students */}
+      {showImportModal && (
+        <div className="modal-overlay">
+          <div className="modal-content modal-lg">
+            <div className="card-header">
+              <span className="card-title">📁 นำเข้ารายชื่อนักเรียน (Import Student Roster)</span>
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportText('');
+                  setParsedStudents([]);
+                  setParseErrors([]);
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '14px' }}>
+              อัปโหลดไฟล์ <code>.csv</code> หรือคัดลอกตารางจาก Excel / Google Sheets มาวางในช่องด้านล่าง
+            </p>
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+              <input
+                type="file"
+                accept=".csv,.tsv,.txt"
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                onChange={handleFileUpload}
+              />
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                📄 เลือกไฟล์ CSV / Text
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={handleDownloadTemplate}
+              >
+                ⬇️ ดาวน์โหลดแม่แบบ CSV ตัวอย่าง
+              </button>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">
+                วางข้อมูลข้อความ (CSV / คัดลอกจาก Excel)
+              </label>
+              <textarea
+                className="form-control"
+                rows={5}
+                placeholder="รหัสนักเรียน,ชื่อ,นามสกุล,ระดับชั้น,ห้องเรียน,เพศ&#10;STD101,สมชาย,ใจดี,ป.1,1,ชาย"
+                value={importText}
+                onChange={(e) => handleTextChange(e.target.value)}
+                style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
+              />
+            </div>
+
+            {/* Error Message */}
+            {parseErrors.length > 0 && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '10px 14px', borderRadius: '6px', color: '#991b1b', fontSize: '0.85rem', marginBottom: '14px' }}>
+                <strong>พบข้อผิดพลาด:</strong>
+                <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                  {parseErrors.map((err, idx) => (
+                    <li key={idx}>{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Preview Section */}
+            {parsedStudents.length > 0 && (
+              <div style={{ marginTop: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <strong style={{ fontSize: '0.9rem' }}>
+                    พรีวิวข้อมูลที่จะนำเข้า (ทั้งหมด {parsedStudents.length} รายการ):
+                  </strong>
+                  <span className="badge badge-primary">{parsedStudents.length} รายการ</span>
+                </div>
+
+                <div className="table-responsive" style={{ maxHeight: '220px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                  <table className="table" style={{ fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr>
+                        <th>รหัสนักเรียน</th>
+                        <th>ชื่อ - นามสกุล</th>
+                        <th>ชั้น</th>
+                        <th>ห้อง</th>
+                        <th>เพศ</th>
+                        <th>สถานะ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parsedStudents.slice(0, 10).map((s, idx) => (
+                        <tr key={idx}>
+                          <td><strong>{s.studentId}</strong></td>
+                          <td>{s.fullName}</td>
+                          <td>{s.grade}</td>
+                          <td>{s.className}</td>
+                          <td>{s.gender || '-'}</td>
+                          <td><span className="badge badge-success">{s.status}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {parsedStudents.length > 10 && (
+                  <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>
+                    * แสดงตัวอย่าง 10 รายการแรกจากทั้งหมด {parsedStudents.length} รายการ
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+                disabled={parsedStudents.length === 0 || importing}
+                onClick={handleConfirmImport}
+              >
+                {importing ? 'กำลังนำเข้าข้อมูล...' : `ยืนยันนำเข้าข้อมูล (${parsedStudents.length} รายการ)`}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={importing}
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportText('');
+                  setParsedStudents([]);
+                  setParseErrors([]);
+                }}
+              >
+                ยกเลิก
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

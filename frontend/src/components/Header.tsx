@@ -20,7 +20,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setTab }) => {
     { id: 'dashboard', label: 'แดชบอร์ด', show: ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) },
     { id: 'students', label: 'ประวัตินักเรียน', show: true },
     { id: 'stock', label: 'คลังเวชภัณฑ์', show: true },
-    { id: 'users', label: 'จัดการผู้ใช้', show: ['SUPER_ADMIN'].includes(role) },
+    { id: 'users', label: 'จัดการผู้ใช้', show: ['ADMIN', 'SUPER_ADMIN'].includes(role) },
     { id: 'config', label: 'ตั้งค่าระบบ', show: ['SUPER_ADMIN'].includes(role) },
   ].filter(item => item.show);
 
@@ -48,8 +48,12 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setTab }) => {
   return (
     <header className="header">
       <div className="header-inner">
-        <div className="brand">
-          <div className="brand-icon">🏥</div>
+        <div className="brand" style={{ cursor: 'pointer' }} onClick={() => handleSelectTab('dispense')}>
+          <img
+            src="https://lh5.googleusercontent.com/d/1r7PM1ogHIbxskvcauVIYaQOfSHXWGncO"
+            alt="BHH Logo"
+            style={{ height: '38px', objectFit: 'contain', background: '#fff', borderRadius: '6px', padding: '2px 6px' }}
+          />
           <div>
             <div style={{ lineHeight: 1.1 }}>School Nurse</div>
             <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 400 }}>ระบบห้องพยาบาล</span>

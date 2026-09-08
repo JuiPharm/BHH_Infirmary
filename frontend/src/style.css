@@ -623,6 +623,26 @@ textarea.form-control {
   padding: 24px;
 }
 
+.modal-content.modal-lg {
+  max-width: 820px;
+}
+
+.upload-dropzone {
+  border: 2px dashed #cbd5e1;
+  border-radius: var(--radius-md);
+  padding: 20px;
+  text-align: center;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 12px;
+}
+
+.upload-dropzone:hover {
+  border-color: var(--color-primary);
+  background: #f1f5f9;
+}
+
 /* Responsive Rules */
 @media (max-width: 900px) {
   .grid-4 {

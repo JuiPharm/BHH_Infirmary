@@ -71,6 +71,8 @@ function route_(r) {
     case 'updateUser': return updateUser_(r.payload || {}, session);
     case 'deactivateUser': return deactivateUser_(r.payload || {}, session);
     case 'resetPassword': return resetPassword_(r.payload || {}, session);
+    case 'importStudents': return importStudents_(r.payload || {}, session);
+    case 'importItems': return importItems_(r.payload || {}, session);
     case 'getConfig': return getConfig_(session);
     case 'updateConfig': return updateConfig_(r.payload || {}, session);
     default: throw new Error('UNKNOWN_ACTION');
@@ -471,7 +473,6 @@ function getDispenseHistory_(p,s) {
 
 function getStock_(p,s) {
   if (!['NURSE','ADMIN','MANAGER','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
-  syncItemQty_();
   let data = rows_(SHEETS.ITEM_MASTER).filter(function(x){return isActive_(x['Active/Inactive']);});
   const q = String(p.q || '').trim().toLowerCase();
   if (q) {
@@ -612,7 +613,6 @@ function getStockTransactions_(p,s) {
 function getDashboardSummary_(s) {
   if (!['ADMIN','MANAGER','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
 
-  syncItemQty_();
   const items = rows_(SHEETS.ITEM_MASTER).filter(function(x){return isActive_(x['Active/Inactive']);});
   const visits = rows_(SHEETS.DISPENSE_HEADER);
   const low = items.filter(function(r){
@@ -690,7 +690,6 @@ function getTopItems_(p,s) {
 
 function getLowStock_(s) {
   if (!['ADMIN','MANAGER','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
-  syncItemQty_();
   return {success:true,data:rows_(SHEETS.ITEM_MASTER).filter(function(x){
     return isActive_(x['Active/Inactive']) &&
       Number(x.QTY||0) <= Number(x['Minimum Stock']||0);
@@ -724,7 +723,7 @@ function getExpiryData_(days) {
 ========================= */
 
 function getUsers_(s) {
-  requireRole_(s,['SUPER_ADMIN']);
+  requireRole_(s,['ADMIN','SUPER_ADMIN']);
   return {success:true,data:rows_(SHEETS.USERS).map(function(u){
     return {
       staffId:String(u['Staff ID'] || ''),
@@ -739,7 +738,7 @@ function getUsers_(s) {
 }
 
 function createUser_(p,s) {
-  requireRole_(s,['SUPER_ADMIN']);
+  requireRole_(s,['ADMIN','SUPER_ADMIN']);
   const staffId = String(p.staffId || '').trim();
   const name = String(p.name || '').trim();
   const password = String(p.password || '');
@@ -762,7 +761,7 @@ function createUser_(p,s) {
 }
 
 function updateUser_(p,s) {
-  requireRole_(s,['SUPER_ADMIN']);
+  requireRole_(s,['ADMIN','SUPER_ADMIN']);
   const staffId = String(p.staffId || '').trim();
   if (!staffId) throw new Error('INVALID_INPUT');
 
@@ -789,12 +788,12 @@ function updateUser_(p,s) {
 }
 
 function deactivateUser_(p,s) {
-  requireRole_(s,['SUPER_ADMIN']);
+  requireRole_(s,['ADMIN','SUPER_ADMIN']);
   return updateUser_({staffId:p.staffId,active:false},s);
 }
 
 function resetPassword_(p,s) {
-  requireRole_(s,['SUPER_ADMIN']);
+  requireRole_(s,['ADMIN','SUPER_ADMIN']);
   const staffId = String(p.staffId || '').trim();
   const password = String(p.password || '');
   if (!staffId || !password) throw new Error('INVALID_INPUT');
@@ -814,6 +813,125 @@ function resetPassword_(p,s) {
 
   audit_(s,'RESET_PASSWORD','USERS',staffId,'SUCCESS');
   return {success:true};
+}
+
+function importStudents_(p,s) {
+  requireRole_(s,['ADMIN','SUPER_ADMIN']);
+  const list = p.students;
+  if (!Array.isArray(list) || !list.length) throw new Error('INVALID_INPUT');
+
+  const sh = getSheet_(SHEETS.STUDENTS);
+  const data = sh.getDataRange().getValues();
+  const h = headerMap_(data[0]);
+  const t = now_();
+  let added = 0;
+  let updated = 0;
+
+  const rowMap = {};
+  for (let i = 1; i < data.length; i++) {
+    const id = String(data[i][h['Student ID']] || '').trim();
+    if (id) rowMap[id] = i;
+  }
+
+  const newRows = [];
+  list.forEach(function(item) {
+    const id = String(item.studentId || item['Student ID'] || '').trim();
+    if (!id) return;
+    const fName = String(item.firstName || item['First Name'] || '').trim();
+    const lName = String(item.lastName || item['Last Name'] || '').trim();
+    const fullName = String(item.fullName || item['Full Name'] || (fName + ' ' + lName).trim() || id);
+    const grade = String(item.grade || item['Grade'] || '').trim();
+    const className = String(item.className || item.class || item['Class'] || '').trim();
+    const gender = String(item.gender || item['Gender'] || '').trim();
+    const status = String(item.status || item['Status'] || 'ACTIVE').trim().toUpperCase();
+
+    if (rowMap[id] !== undefined) {
+      const r = rowMap[id];
+      data[r][h['First Name']] = fName;
+      data[r][h['Last Name']] = lName;
+      data[r][h['Full Name']] = fullName;
+      data[r][h['Grade']] = grade;
+      data[r][h['Class']] = className;
+      data[r][h['Gender']] = gender;
+      data[r][h['Status']] = status;
+      data[r][h['Updated At']] = t;
+      updated++;
+    } else {
+      newRows.push([id, fName, lName, fullName, grade, className, gender, status, t]);
+      rowMap[id] = data.length + newRows.length - 1;
+      added++;
+    }
+  });
+
+  if (updated > 0) {
+    sh.getRange(1, 1, data.length, data[0].length).setValues(data);
+  }
+  if (newRows.length > 0) {
+    sh.getRange(sh.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
+  }
+
+  audit_(s, 'IMPORT_STUDENTS', 'STUDENTS', 'Count:' + (added + updated), 'SUCCESS');
+  return { success: true, data: { added: added, updated: updated, total: added + updated } };
+}
+
+function importItems_(p,s) {
+  requireRole_(s,['ADMIN','SUPER_ADMIN']);
+  const list = p.items;
+  if (!Array.isArray(list) || !list.length) throw new Error('INVALID_INPUT');
+
+  const sh = getSheet_(SHEETS.ITEM_MASTER);
+  const data = sh.getDataRange().getValues();
+  const h = headerMap_(data[0]);
+  let added = 0;
+  let updated = 0;
+
+  const rowMap = {};
+  for (let i = 1; i < data.length; i++) {
+    const code = String(data[i][h['Item Code']] || '').trim();
+    if (code) rowMap[code] = i;
+  }
+
+  const newRows = [];
+  list.forEach(function(item) {
+    const code = String(item.itemCode || item['Item Code'] || '').trim();
+    if (!code) return;
+    const type = String(item.itemType || item['Item Type'] || 'DRUG').trim().toUpperCase();
+    const gName = String(item.genericName || item['Generic Name'] || '').trim();
+    const tName = String(item.tradeName || item['Trade Name'] || '').trim();
+    const unit = String(item.unit || item['Unit'] || 'ชิ้น').trim();
+    const minStock = Number(item.minStock || item['Minimum Stock']) || 0;
+    const maxStock = Number(item.maxStock || item['Maximum Stock']) || 0;
+    const cost = Number(item.unitCost || item['Unit Cost']) || 0;
+    const active = item.active !== undefined ? (item.active ? 'TRUE' : 'FALSE') : 'TRUE';
+
+    if (rowMap[code] !== undefined) {
+      const r = rowMap[code];
+      data[r][h['Item Type']] = type;
+      data[r][h['Generic Name']] = gName;
+      data[r][h['Trade Name']] = tName;
+      data[r][h['Unit']] = unit;
+      data[r][h['Minimum Stock']] = minStock;
+      data[r][h['Maximum Stock']] = maxStock;
+      data[r][h['Unit Cost']] = cost;
+      data[r][h['Active/Inactive']] = active;
+      updated++;
+    } else {
+      newRows.push([code, type, gName, tName, 0, unit, minStock, maxStock, cost, active]);
+      rowMap[code] = data.length + newRows.length - 1;
+      added++;
+    }
+  });
+
+  if (updated > 0) {
+    sh.getRange(1, 1, data.length, data[0].length).setValues(data);
+  }
+  if (newRows.length > 0) {
+    sh.getRange(sh.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
+  }
+
+  syncItemQty_();
+  audit_(s, 'IMPORT_ITEMS', 'ITEM_MASTER', 'Count:' + (added + updated), 'SUCCESS');
+  return { success: true, data: { added: added, updated: updated, total: added + updated } };
 }
 
 /* =========================
