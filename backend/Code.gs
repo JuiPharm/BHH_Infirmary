@@ -134,6 +134,7 @@ function seedUser() {
   validateRole_(role);
 
   const sh = getSheet_(SHEETS.USERS);
+  formatTextColumns_(sh, HEADERS.USERS);
   const users = rows_(SHEETS.USERS);
   const existing = users.find(function(u){ return String(u['Staff ID']).trim() === staffId; });
 
@@ -432,9 +433,16 @@ function submitDispense_(p,s) {
 
     // Write stock first, then records. Rollback is attempted on any error.
     lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
+    formatTextColumns_(header, HEADERS.DISPENSE_HEADER);
     header.getRange(header.getLastRow()+1,1,1,hrow.length).setValues([hrow]);
-    if (drows.length) detail.getRange(detail.getLastRow()+1,1,drows.length,drows[0].length).setValues(drows);
-    if (trows.length) txn.getRange(txn.getLastRow()+1,1,trows.length,trows[0].length).setValues(trows);
+    if (drows.length) {
+      formatTextColumns_(detail, HEADERS.DISPENSE_ITEMS);
+      detail.getRange(detail.getLastRow()+1,1,drows.length,drows[0].length).setValues(drows);
+    }
+    if (trows.length) {
+      formatTextColumns_(txn, HEADERS.STOCK_TRANSACTION);
+      txn.getRange(txn.getLastRow()+1,1,trows.length,trows[0].length).setValues(trows);
+    }
 
     syncItemQty_();
     audit_(s,'DISPENSE','DISPENSE',visitId,'SUCCESS');
@@ -753,7 +761,9 @@ function createUser_(p,s) {
 
   const salt = Utilities.getUuid().replace(/-/g,'').slice(0,16);
   const t = now_();
-  getSheet_(SHEETS.USERS).appendRow([
+  const userSh = getSheet_(SHEETS.USERS);
+  formatTextColumns_(userSh, HEADERS.USERS);
+  userSh.appendRow([
     staffId,name,role,salt+'$'+hash_(password,salt),true,'',t,t
   ]);
   audit_(s,'CREATE_USER','USERS',staffId,'SUCCESS');
@@ -821,7 +831,9 @@ function importStudents_(p,s) {
   if (!Array.isArray(list) || !list.length) throw new Error('INVALID_INPUT');
 
   const sh = getSheet_(SHEETS.STUDENTS);
+  formatTextColumns_(sh, HEADERS.STUDENTS);
   const data = sh.getDataRange().getValues();
+  const displayData = sh.getDataRange().getDisplayValues();
   const h = headerMap_(data[0]);
   const t = now_();
   let added = 0;
@@ -829,7 +841,8 @@ function importStudents_(p,s) {
 
   const rowMap = {};
   for (let i = 1; i < data.length; i++) {
-    const id = String(data[i][h['Student ID']] || '').trim();
+    const dispId = displayData[i] ? displayData[i][h['Student ID']] : '';
+    const id = String(dispId || data[i][h['Student ID']] || '').trim();
     if (id) rowMap[id] = i;
   }
 
@@ -864,10 +877,13 @@ function importStudents_(p,s) {
   });
 
   if (updated > 0) {
+    sh.getRange(1, h['Student ID'] + 1, data.length, 1).setNumberFormat('@');
     sh.getRange(1, 1, data.length, data[0].length).setValues(data);
   }
   if (newRows.length > 0) {
-    sh.getRange(sh.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
+    const startRow = sh.getLastRow() + 1;
+    sh.getRange(startRow, h['Student ID'] + 1, newRows.length, 1).setNumberFormat('@');
+    sh.getRange(startRow, 1, newRows.length, newRows[0].length).setValues(newRows);
   }
 
   audit_(s, 'IMPORT_STUDENTS', 'STUDENTS', 'Count:' + (added + updated), 'SUCCESS');
@@ -1043,18 +1059,47 @@ function getSheet_(name) {
 
 function rows_(name) {
   const sh = getSheet_(name);
-  const values = sh.getDataRange().getValues();
+  const range = sh.getDataRange();
+  const values = range.getValues();
   if (!values.length || values.length < 2) return [];
-  return values.slice(1).map(function(row){
+  const displayValues = range.getDisplayValues();
+  const headers = values[0].map(String);
+  const textCols = [
+    'Staff ID', 'Student ID', 'Item Code', 'Lot Number', 'Stock Lot ID',
+    'Visit ID', 'Dispense Item ID', 'Transaction ID', 'Log ID', 'Reference ID', 'Client Transaction ID'
+  ];
+  return values.slice(1).map(function(row, rIdx){
     const obj = {};
-    values[0].forEach(function(h,i){obj[String(h)] = row[i];});
+    headers.forEach(function(h, i){
+      if (textCols.indexOf(h) >= 0) {
+        const disp = displayValues[rIdx + 1] ? displayValues[rIdx + 1][i] : undefined;
+        obj[h] = String(disp !== undefined && disp !== '' ? disp : (row[i] !== undefined && row[i] !== null ? row[i] : '')).trim();
+      } else {
+        obj[h] = row[i];
+      }
+    });
     return obj;
+  });
+}
+
+function formatTextColumns_(sh, headers) {
+  const textCols = [
+    'Staff ID', 'Student ID', 'Item Code', 'Lot Number', 'Stock Lot ID',
+    'Visit ID', 'Dispense Item ID', 'Transaction ID', 'Log ID', 'Reference ID', 'Client Transaction ID'
+  ];
+  headers.forEach(function(h, i) {
+    if (textCols.indexOf(h) >= 0) {
+      try {
+        sh.getRange(1, i + 1, Math.max(sh.getMaxRows(), 500), 1).setNumberFormat('@');
+      } catch (e) {}
+    }
   });
 }
 
 function ensureHeaders_(sh,headers) {
   if (sh.getLastRow() === 0) {
     sh.getRange(1,1,1,headers.length).setValues([headers]);
+    formatTextColumns_(sh, headers);
     return;
   }
   const existing = sh.getRange(1,1,1,Math.max(sh.getLastColumn(),headers.length)).getValues()[0];
@@ -1062,6 +1107,7 @@ function ensureHeaders_(sh,headers) {
   if (missing && sh.getLastRow() <= 1) {
     sh.getRange(1,1,1,headers.length).setValues([headers]);
   }
+  formatTextColumns_(sh, headers);
 }
 
 function headerMap_(headers) {

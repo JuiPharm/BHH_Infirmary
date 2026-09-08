@@ -59,7 +59,7 @@ export const LoginPage: React.FC = () => {
               id="staffId"
               type="text"
               className="form-control"
-              placeholder="เช่น 520294"
+              placeholder="เช่น 520294 หรือ 0520294"
               value={staffId}
               onChange={(e) => setStaffId(e.target.value)}
               required

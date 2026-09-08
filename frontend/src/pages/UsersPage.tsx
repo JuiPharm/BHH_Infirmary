@@ -213,7 +213,7 @@ export const UsersPage: React.FC = () => {
                 <input
                   type="text"
                   className="form-control"
-                  placeholder="เช่น NURSE01 หรือ 520295"
+                  placeholder="เช่น 520295 หรือ 0520295"
                   value={newStaffId}
                   onChange={(e) => setNewStaffId(e.target.value)}
                   required

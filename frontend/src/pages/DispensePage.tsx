@@ -365,7 +365,7 @@ export const DispensePage: React.FC = () => {
                   <input
                     type="text"
                     className="form-control"
-                    placeholder="ค้นหาด้วย รหัสนักเรียน / ชื่อ / นามสกุล / ชั้น"
+                    placeholder="ค้นหาด้วย รหัสนักเรียน (เช่น 01234) / ชื่อ / นามสกุล / ชั้น"
                     value={studentQuery}
                     onChange={(e) => setStudentQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearchStudent()}

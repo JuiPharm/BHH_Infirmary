@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Student, DispenseHeaderRecord } from '../types';
 import { api } from '../api';
@@ -161,7 +161,7 @@ export const StudentsPage: React.FC = () => {
             <input
               type="text"
               className="form-control"
-              placeholder="รหัสนักเรียน / ชื่อ / นามสกุล / ชั้น / ห้อง"
+              placeholder="รหัสนักเรียน (เช่น 01234) / ชื่อ / นามสกุล / ชั้น / ห้อง"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}

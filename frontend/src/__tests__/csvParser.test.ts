@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { parseStudentsInput, parseItemsInput, parseDelimitedText } from '../utils/csvParser';
 
 describe('csvParser Utility', () => {
@@ -35,10 +35,12 @@ describe('csvParser Utility', () => {
     expect(res.data[1].itemType).toBe('MEDICAL_SUPPLY');
   });
 
-  it('returns errors when required identifier column is missing', () => {
-    const raw = `name,grade,class\nJohn,1,1`;
+  it('preserves leading zeros for studentId and text codes', () => {
+    const raw = `studentId,firstName,lastName,grade,className,gender\n00123,สมใจ,นึก,ป.1,1,ชาย\n0520294,สมพร,ดี,ป.2,2,หญิง`;
     const res = parseStudentsInput(raw);
-    expect(res.errors.length).toBeGreaterThan(0);
-    expect(res.data).toHaveLength(0);
+    expect(res.errors).toHaveLength(0);
+    expect(res.data).toHaveLength(2);
+    expect(res.data[0].studentId).toBe('00123');
+    expect(res.data[1].studentId).toBe('0520294');
   });
 });
