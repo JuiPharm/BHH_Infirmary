@@ -6,6 +6,7 @@ import {
   reconcileStock,
   getStockAlertLevel,
   getDaysUntilExpiry,
+  normalizeItemType,
   Lot
 } from '../domain/stock';
 
@@ -234,3 +235,27 @@ describe('Role-Based Access Control (RBAC) Matrix', () => {
     expect(checkPermission('SUPER_ADMIN', 'updateConfig')).toBe(true);
   });
 });
+
+describe('normalizeItemType', () => {
+  it('identifies drug types from various inputs', () => {
+    expect(normalizeItemType('DRUG')).toBe('DRUG');
+    expect(normalizeItemType('drug')).toBe('DRUG');
+    expect(normalizeItemType('ยา')).toBe('DRUG');
+    expect(normalizeItemType('ยาเม็ด')).toBe('DRUG');
+    expect(normalizeItemType('MEDICINE')).toBe('DRUG');
+    expect(normalizeItemType('')).toBe('DRUG');
+    expect(normalizeItemType(undefined)).toBe('DRUG');
+  });
+
+  it('identifies medical supply types from various inputs', () => {
+    expect(normalizeItemType('MEDICAL_SUPPLY')).toBe('MEDICAL_SUPPLY');
+    expect(normalizeItemType('MEDICAL SUPPLY')).toBe('MEDICAL_SUPPLY');
+    expect(normalizeItemType('medical_supply')).toBe('MEDICAL_SUPPLY');
+    expect(normalizeItemType('SUPPLY')).toBe('MEDICAL_SUPPLY');
+    expect(normalizeItemType('เวชภัณฑ์')).toBe('MEDICAL_SUPPLY');
+    expect(normalizeItemType('เวชภัณฑ์การแพทย์')).toBe('MEDICAL_SUPPLY');
+    expect(normalizeItemType('อุปกรณ์')).toBe('MEDICAL_SUPPLY');
+    expect(normalizeItemType('วัสดุการแพทย์')).toBe('MEDICAL_SUPPLY');
+  });
+});
+

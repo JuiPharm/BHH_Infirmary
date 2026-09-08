@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Student, Item, CartItem } from '../types';
 import { api } from '../api';
+import { normalizeItemType } from '../domain/stock';
 import Swal from 'sweetalert2';
 
 const COMMON_SYMPTOMS = [
@@ -166,8 +167,9 @@ export const DispensePage: React.FC = () => {
   };
 
   const filteredItems = items.filter((item) => {
+    const itemType = normalizeItemType(item['Item Type']);
     const matchType =
-      itemTypeFilter === 'ALL' || item['Item Type'] === itemTypeFilter;
+      itemTypeFilter === 'ALL' || itemType === itemTypeFilter;
     const q = itemSearch.toLowerCase().trim();
     const matchQuery =
       !q ||
@@ -551,8 +553,8 @@ export const DispensePage: React.FC = () => {
                           </div>
                         )}
                         <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span className={`badge ${item['Item Type'] === 'DRUG' ? 'badge-primary' : 'badge-gray'}`} style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
-                            {item['Item Type'] === 'DRUG' ? 'ยา' : 'เวชภัณฑ์'}
+                          <span className={`badge ${normalizeItemType(item['Item Type']) === 'DRUG' ? 'badge-primary' : 'badge-gray'}`} style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
+                            {normalizeItemType(item['Item Type']) === 'DRUG' ? '💊 ยา' : '🩹 เวชภัณฑ์'}
                           </span>
                           <span>
                             คงเหลือ:{' '}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Item, StockLot, StockTransactionRecord } from '../types';
 import { api } from '../api';
-import { getDaysUntilExpiry, getStockAlertLevel } from '../domain/stock';
+import { getDaysUntilExpiry, getStockAlertLevel, normalizeItemType } from '../domain/stock';
 import { parseItemsInput, ItemImportRow } from '../utils/csvParser';
 import Swal from 'sweetalert2';
 
@@ -226,7 +226,8 @@ export const StockPage: React.FC = () => {
   };
 
   const filteredItems = items.filter((it) => {
-    const matchType = itemTypeFilter === 'ALL' || it['Item Type'] === itemTypeFilter;
+    const itemType = normalizeItemType(it['Item Type']);
+    const matchType = itemTypeFilter === 'ALL' || itemType === itemTypeFilter;
     const q = itemSearch.toLowerCase().trim();
     const matchQuery =
       !q ||
@@ -362,8 +363,8 @@ export const StockPage: React.FC = () => {
                       <tr key={it['Item Code']}>
                         <td><strong>{it['Item Code']}</strong></td>
                         <td>
-                          <span className={`badge ${it['Item Type'] === 'DRUG' ? 'badge-primary' : 'badge-gray'}`}>
-                            {it['Item Type']}
+                          <span className={`badge ${normalizeItemType(it['Item Type']) === 'DRUG' ? 'badge-primary' : 'badge-gray'}`}>
+                            {normalizeItemType(it['Item Type']) === 'DRUG' ? '💊 ยา' : '🩹 เวชภัณฑ์'}
                           </span>
                         </td>
                         <td>{it['Generic Name']}</td>

@@ -102,3 +102,17 @@ export function getDaysUntilExpiry(expiryDateStr: string, today: Date = new Date
   const diffMs = e.getTime() - t.getTime();
   return Math.round(diffMs / (1000 * 60 * 60 * 24));
 }
+
+export function normalizeItemType(rawType?: string): 'DRUG' | 'MEDICAL_SUPPLY' {
+  const s = String(rawType || '').trim().toUpperCase();
+  if (
+    s.includes('SUPPLY') ||
+    s.includes('เวชภัณฑ์') ||
+    s.includes('อุปกรณ์') ||
+    s.includes('วัสดุ')
+  ) {
+    return 'MEDICAL_SUPPLY';
+  }
+  return 'DRUG';
+}
+

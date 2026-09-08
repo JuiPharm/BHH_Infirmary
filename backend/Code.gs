@@ -1013,7 +1013,7 @@ function importItems_(p,s) {
   list.forEach(function(item) {
     const code = String(item.itemCode || item['Item Code'] || '').trim();
     if (!code) return;
-    const type = String(item.itemType || item['Item Type'] || 'DRUG').trim().toUpperCase();
+    const type = normalizeItemType_(item.itemType || item['Item Type'] || 'DRUG');
     const gName = String(item.genericName || item['Generic Name'] || '').trim();
     const tName = String(item.tradeName || item['Trade Name'] || '').trim();
     const unit = String(item.unit || item['Unit'] || 'ชิ้น').trim();
@@ -1286,6 +1286,14 @@ function isActive_(value) {
 function isActiveStatus_(value) {
   const s = String(value || '').trim().toUpperCase();
   return !s || s === 'ACTIVE' || s === 'TRUE' || s === '1';
+}
+
+function normalizeItemType_(val) {
+  const s = String(val || '').trim().toUpperCase();
+  if (s.indexOf('SUPPLY') >= 0 || s.indexOf('เวชภัณฑ์') >= 0 || s.indexOf('อุปกรณ์') >= 0 || s.indexOf('วัสดุ') >= 0) {
+    return 'MEDICAL_SUPPLY';
+  }
+  return 'DRUG';
 }
 
 function studentExists_(id) {
