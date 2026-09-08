@@ -1,4 +1,4 @@
-﻿export interface StudentImportRow {
+export interface StudentImportRow {
   studentId: string;
   firstName: string;
   lastName: string;
@@ -93,12 +93,12 @@ export function parseStudentsInput(rawText: string): { data: StudentImportRow[];
     return headers.findIndex((h) => normalAliases.includes(h));
   };
 
-  const idCol = findCol('studentid', 'id', 'รหัสนักเรียน', 'รหัสประจำตัว', 'รหัส');
-  const fNameCol = findCol('firstname', 'ชื่อ', 'ชื่อจริง');
-  const lNameCol = findCol('lastname', 'นามสกุล');
-  const fullNameCol = findCol('fullname', 'name', 'ชื่อสกุล', 'ชื่อนามสกุล');
+  const idCol = findCol('studentid', 'student_id', 'student id', 'id', 'รหัสนักเรียน', 'รหัสประจำตัว', 'รหัส');
+  const fNameCol = findCol('firstname', 'first_name', 'first name', 'ชื่อ', 'ชื่อจริง');
+  const lNameCol = findCol('lastname', 'last_name', 'last name', 'นามสกุล');
+  const fullNameCol = findCol('fullname', 'full_name', 'full name', 'name', 'ชื่อสกุล', 'ชื่อนามสกุล', 'ชื่อ-นามสกุล', 'ชื่อ นามสกุล');
   const gradeCol = findCol('grade', 'ระดับชั้น', 'ชั้น', 'ชั้นเรียน', 'ชั้นปี');
-  const classCol = findCol('classname', 'class', 'ห้อง', 'ห้องเรียน');
+  const classCol = findCol('class', 'classname', 'class_name', 'class name', 'ห้อง', 'ห้องเรียน');
   const genderCol = findCol('gender', 'เพศ');
   const statusCol = findCol('status', 'สถานะ');
 
@@ -166,15 +166,15 @@ export function parseItemsInput(rawText: string): { data: ItemImportRow[]; error
     return headers.findIndex((h) => normalAliases.includes(h));
   };
 
-  const codeCol = findCol('itemcode', 'code', 'รหัส', 'รหัสยา', 'รหัสเวชภัณฑ์');
-  const typeCol = findCol('itemtype', 'type', 'ประเภท', 'หมวด', 'หมวดหมู่');
-  const gNameCol = findCol('genericname', 'generic', 'ชื่อสามัญ', 'ชื่อยา', 'ชื่อเวชภัณฑ์');
-  const tNameCol = findCol('tradename', 'trade', 'ชื่อการค้า');
+  const codeCol = findCol('itemcode', 'item_code', 'item code', 'code', 'รหัส', 'รหัสยา', 'รหัสเวชภัณฑ์');
+  const typeCol = findCol('itemtype', 'item_type', 'item type', 'type', 'ประเภท', 'หมวด', 'หมวดหมู่');
+  const gNameCol = findCol('genericname', 'generic_name', 'generic name', 'generic', 'ชื่อสามัญ', 'ชื่อยา', 'ชื่อเวชภัณฑ์');
+  const tNameCol = findCol('tradename', 'trade_name', 'trade name', 'trade', 'ชื่อการค้า');
   const unitCol = findCol('unit', 'หน่วย', 'หน่วยนับ');
-  const minCol = findCol('minstock', 'minimumstock', 'min', 'เกณฑ์ขั้นต่ำ', 'ขั้นต่ำ');
-  const maxCol = findCol('maxstock', 'maximumstock', 'max', 'เกณฑ์สูงสุด', 'สูงสุด');
-  const costCol = findCol('unitcost', 'cost', 'ราคาต่อหน่วย', 'ราคา');
-  const activeCol = findCol('active', 'active/inactive', 'status', 'สถานะ');
+  const minCol = findCol('minimumstock', 'minstock', 'minimum_stock', 'min_stock', 'min', 'เกณฑ์ขั้นต่ำ', 'ขั้นต่ำ');
+  const maxCol = findCol('maximumstock', 'maxstock', 'maximum_stock', 'max_stock', 'max', 'เกณฑ์สูงสุด', 'สูงสุด');
+  const costCol = findCol('unitcost', 'unit_cost', 'unit cost', 'cost', 'ราคาต่อหน่วย', 'ราคา');
+  const activeCol = findCol('activeinactive', 'active/inactive', 'active', 'active_inactive', 'status', 'สถานะ');
 
   if (codeCol === -1) {
     return {

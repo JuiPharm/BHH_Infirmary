@@ -183,15 +183,15 @@ export const StockPage: React.FC = () => {
 
   const handleDownloadTemplate = () => {
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' +
-      'รหัสเวชภัณฑ์,ประเภท,ชื่อสามัญ,ชื่อการค้า,หน่วย,เกณฑ์ขั้นต่ำ,เกณฑ์สูงสุด,ราคาต่อหน่วย\n' +
-      'PARA500,DRUG,Paracetamol 500mg,Tylenol,เม็ด,100,1000,0.50\n' +
-      'AMOX500,DRUG,Amoxicillin 500mg,Amoxil,แคปซูล,50,500,1.50\n' +
-      'GAUZE2X2,MEDICAL_SUPPLY,Gauze sterile 2x2,Gauze,ชิ้น,50,500,2.00\n' +
-      'BETADINE,DRUG,Povidone Iodine 15ml,Betadine,ขวด,10,100,25.00\n';
+      'Item Code,Item Type,Generic Name,Trade Name,Unit,Minimum Stock,Maximum Stock,Unit Cost,Active/Inactive\n' +
+      'PARA500,DRUG,Paracetamol 500mg,Tylenol,เม็ด,100,1000,0.50,TRUE\n' +
+      'AMOX500,DRUG,Amoxicillin 500mg,Amoxil,แคปซูล,50,500,1.50,TRUE\n' +
+      'GAUZE2X2,MEDICAL_SUPPLY,Gauze sterile 2x2,Gauze,ชิ้น,50,500,2.00,TRUE\n' +
+      'BETADINE,DRUG,Povidone Iodine 15ml,Betadine,ขวด,10,100,25.00,TRUE\n';
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', 'items_import_template.csv');
+    link.setAttribute('download', 'ITEM_MASTER_template.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -718,7 +718,7 @@ export const StockPage: React.FC = () => {
             </div>
 
             <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '14px' }}>
-              อัปโหลดไฟล์ <code>.csv</code> หรือคัดลอกตารางรายการยา/เวชภัณฑ์จาก Excel หรือ Google Sheets มาวาง
+              อัปโหลดไฟล์ <code>.csv</code> หรือคัดลอกตารางรายการยา/เวชภัณฑ์จาก Excel หรือ Google Sheets มาวาง (หัวตารางตรงตาม Google Sheet: <code>Item Code, Item Type, Generic Name, Trade Name, Unit, Minimum Stock, Maximum Stock, Unit Cost, Active/Inactive</code>)
             </p>
 
             <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
@@ -741,18 +741,18 @@ export const StockPage: React.FC = () => {
                 className="btn btn-outline btn-sm"
                 onClick={handleDownloadTemplate}
               >
-                ⬇️ ดาวน์โหลดแม่แบบ CSV ตัวอย่าง
+                ⬇️ ดาวน์โหลดแม่แบบ CSV (ตรงตาม Google Sheet)
               </button>
             </div>
 
             <div className="form-group">
               <label className="form-label">
-                วางข้อมูลข้อความ (CSV / คัดลอกจาก Excel)
+                วางข้อมูลข้อความ (CSV / คัดลอกจาก Google Sheet หรือ Excel)
               </label>
               <textarea
                 className="form-control"
                 rows={5}
-                placeholder="รหัสเวชภัณฑ์,ประเภท,ชื่อสามัญ,ชื่อการค้า,หน่วย,เกณฑ์ขั้นต่ำ,เกณฑ์สูงสุด,ราคาต่อหน่วย&#10;PARA500,DRUG,Paracetamol 500mg,Tylenol,เม็ด,100,1000,0.50&#10;GAUZE2X2,MEDICAL_SUPPLY,Gauze sterile 2x2,Gauze,ชิ้น,50,500,2.00"
+                placeholder="Item Code,Item Type,Generic Name,Trade Name,Unit,Minimum Stock,Maximum Stock,Unit Cost,Active/Inactive&#10;PARA500,DRUG,Paracetamol 500mg,Tylenol,เม็ด,100,1000,0.50,TRUE"
                 value={importText}
                 onChange={(e) => handleTextChange(e.target.value)}
                 style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}

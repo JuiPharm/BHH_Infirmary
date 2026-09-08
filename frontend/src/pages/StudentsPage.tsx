@@ -95,14 +95,14 @@ export const StudentsPage: React.FC = () => {
 
   const handleDownloadTemplate = () => {
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' +
-      'รหัสนักเรียน,ชื่อ,นามสกุล,ระดับชั้น,ห้องเรียน,เพศ\n' +
-      'STD101,สมชาย,ใจดี,ป.1,1,ชาย\n' +
-      'STD102,สมหญิง,รักเรียน,ป.1,2,หญิง\n' +
-      'STD103,อนันต์,สุขใจ,ม.2,3,ชาย\n';
+      'Student ID,First Name,Last Name,Full Name,Grade,Class,Gender,Status\n' +
+      '01001,สมชาย,ใจดี,สมชาย ใจดี,ป.1,1,ชาย,ACTIVE\n' +
+      '01002,สมหญิง,รักเรียน,สมหญิง รักเรียน,ป.1,2,หญิง,ACTIVE\n' +
+      '01003,อนันต์,สุขใจ,อนันต์ สุขใจ,ม.1,1,ชาย,ACTIVE\n';
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', 'student_import_template.csv');
+    link.setAttribute('download', 'STUDENTS_template.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -338,7 +338,7 @@ export const StudentsPage: React.FC = () => {
             </div>
 
             <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '14px' }}>
-              อัปโหลดไฟล์ <code>.csv</code> หรือคัดลอกตารางจาก Excel / Google Sheets มาวางในช่องด้านล่าง
+              อัปโหลดไฟล์ <code>.csv</code> หรือคัดลอกตารางจาก Excel / Google Sheets มาวาง (หัวตารางตรงตาม Google Sheet: <code>Student ID, First Name, Last Name, Full Name, Grade, Class, Gender, Status</code>)
             </p>
 
             <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
@@ -361,18 +361,18 @@ export const StudentsPage: React.FC = () => {
                 className="btn btn-outline btn-sm"
                 onClick={handleDownloadTemplate}
               >
-                ⬇️ ดาวน์โหลดแม่แบบ CSV ตัวอย่าง
+                ⬇️ ดาวน์โหลดแม่แบบ CSV (ตรงตาม Google Sheet)
               </button>
             </div>
 
             <div className="form-group">
               <label className="form-label">
-                วางข้อมูลข้อความ (CSV / คัดลอกจาก Excel)
+                วางข้อมูลข้อความ (CSV / คัดลอกจาก Google Sheet หรือ Excel)
               </label>
               <textarea
                 className="form-control"
                 rows={5}
-                placeholder="รหัสนักเรียน,ชื่อ,นามสกุล,ระดับชั้น,ห้องเรียน,เพศ&#10;STD101,สมชาย,ใจดี,ป.1,1,ชาย"
+                placeholder="Student ID,First Name,Last Name,Full Name,Grade,Class,Gender,Status&#10;01001,สมชาย,ใจดี,สมชาย ใจดี,ป.1,1,ชาย,ACTIVE"
                 value={importText}
                 onChange={(e) => handleTextChange(e.target.value)}
                 style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
