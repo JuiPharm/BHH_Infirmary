@@ -60,6 +60,7 @@ function route_(r) {
     case 'receiveStock': return receiveStock_(r.payload || {}, session);
     case 'adjustStock': return adjustStock_(r.payload || {}, session);
     case 'getStockTransactions': return getStockTransactions_(r.payload || {}, session);
+    case 'getDashboardData': return getDashboardData_(r.payload || {}, session);
     case 'getDashboardSummary': return getDashboardSummary_(session);
     case 'getVisitTrend': return getVisitTrend_(r.payload || {}, session);
     case 'getTopSymptoms': return getTopSymptoms_(r.payload || {}, session);
@@ -271,13 +272,25 @@ function getStudentHistory_(p,s) {
 }
 
 function getItems_(p) {
-  const q = String(p.q || '').trim().toLowerCase();
+  const q = String(p && p.q || '').trim().toLowerCase();
+  if (!q) {
+    try {
+      const cached = CacheService.getScriptCache().get('cache:items_all');
+      if (cached) return {success:true,data:JSON.parse(cached)};
+    } catch(e) {}
+  }
   const data = rows_(SHEETS.ITEM_MASTER).filter(function(x){
     return isActive_(x['Active/Inactive']) &&
       (!q || ['Item Code','Generic Name','Trade Name'].some(function(k){
         return String(x[k] || '').toLowerCase().indexOf(q) >= 0;
       }));
   }).slice(0,50);
+
+  if (!q && data.length) {
+    try {
+      CacheService.getScriptCache().put('cache:items_all', JSON.stringify(data), 120);
+    } catch(e) {}
+  }
 
   return {success:true,data:data};
 }
@@ -437,18 +450,15 @@ function submitDispense_(p,s) {
 
     // Write stock first, then records. Rollback is attempted on any error.
     lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
-    formatTextColumns_(header, HEADERS.DISPENSE_HEADER);
     header.getRange(header.getLastRow()+1,1,1,hrow.length).setValues([hrow]);
     if (drows.length) {
-      formatTextColumns_(detail, HEADERS.DISPENSE_ITEMS);
       detail.getRange(detail.getLastRow()+1,1,drows.length,drows[0].length).setValues(drows);
     }
     if (trows.length) {
-      formatTextColumns_(txn, HEADERS.STOCK_TRANSACTION);
       txn.getRange(txn.getLastRow()+1,1,trows.length,trows[0].length).setValues(trows);
     }
 
-    syncItemQty_();
+    syncItemQty_(lotData);
     audit_(s,'DISPENSE','DISPENSE',visitId,'SUCCESS');
 
     const resultItems = Object.keys(requestedByItem).map(function(code){
@@ -485,14 +495,25 @@ function getDispenseHistory_(p,s) {
 
 function getStock_(p,s) {
   if (!['NURSE','ADMIN','MANAGER','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
+  const q = String(p && p.q || '').trim().toLowerCase();
+  if (!q) {
+    try {
+      const cached = CacheService.getScriptCache().get('cache:stock_all');
+      if (cached) return {success:true,data:JSON.parse(cached)};
+    } catch(e) {}
+  }
   let data = rows_(SHEETS.ITEM_MASTER).filter(function(x){return isActive_(x['Active/Inactive']);});
-  const q = String(p.q || '').trim().toLowerCase();
   if (q) {
     data = data.filter(function(x){
       return ['Item Code','Generic Name','Trade Name'].some(function(k){
         return String(x[k] || '').toLowerCase().indexOf(q)>=0;
       });
     });
+  }
+  if (!q && data.length) {
+    try {
+      CacheService.getScriptCache().put('cache:stock_all', JSON.stringify(data), 120);
+    } catch(e) {}
   }
   return {success:true,data:data};
 }
@@ -582,11 +603,10 @@ function adjustStock_(p,s) {
   }
 }
 
-function syncItemQty_() {
+function syncItemQty_(optionalLotData) {
   const masterSh = getSheet_(SHEETS.ITEM_MASTER);
-  const lotSh = getSheet_(SHEETS.STOCK_LOT);
   const masterData = masterSh.getDataRange().getValues();
-  const lotData = lotSh.getDataRange().getValues();
+  const lotData = optionalLotData || getSheet_(SHEETS.STOCK_LOT).getDataRange().getValues();
 
   if (!masterData.length || !lotData.length) return;
 
@@ -607,6 +627,7 @@ function syncItemQty_() {
   }
 
   masterSh.getRange(1,1,masterData.length,masterData[0].length).setValues(masterData);
+  invalidateStockCache_();
 }
 
 function getStockTransactions_(p,s) {
@@ -621,6 +642,80 @@ function getStockTransactions_(p,s) {
 /* =========================
    DASHBOARD
 ========================= */
+
+function getDashboardData_(p, s) {
+  if (!['ADMIN','MANAGER','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
+  const days = Math.min(Math.max(Number(p && p.days) || 14, 1), 365);
+
+  const items = rows_(SHEETS.ITEM_MASTER).filter(function(x){return isActive_(x['Active/Inactive']);});
+  const visits = rows_(SHEETS.DISPENSE_HEADER);
+  const low = items.filter(function(r){
+    return Number(r.QTY||0) <= Number(r['Minimum Stock']||0);
+  });
+
+  const today = Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd');
+  const todayVisits = visits.filter(function(v){return String(v['Visit Date'])===today;});
+  const expiryAlerts = getExpiryData_(90);
+
+  const summary = {
+    items: items.length,
+    lowStock: low.length,
+    visitsToday: todayVisits.length,
+    totalVisits: visits.length,
+    expiryAlerts: expiryAlerts.length
+  };
+
+  const visitMap = {};
+  visits.forEach(function(v){
+    const d = String(v['Visit Date'] || '');
+    if (d) visitMap[d] = (visitMap[d] || 0) + 1;
+  });
+  const trends = [];
+  const base = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() - i);
+    const key = Utilities.formatDate(d, getTimeZone_(), 'yyyy-MM-dd');
+    trends.push({ date: key, count: visitMap[key] || 0 });
+  }
+
+  const symptomCounts = {};
+  visits.forEach(function(v){
+    let symptoms = [];
+    try { symptoms = JSON.parse(String(v.Symptoms || '[]')); } catch(e) {}
+    if (!Array.isArray(symptoms)) symptoms = [symptoms];
+    symptoms.forEach(function(x){
+      const k = String(x || '').trim();
+      if (k) symptomCounts[k] = (symptomCounts[k] || 0) + 1;
+    });
+    const other = String(v['Other Symptom'] || '').trim();
+    if (other) symptomCounts[other] = (symptomCounts[other] || 0) + 1;
+  });
+  const topSymptoms = Object.keys(symptomCounts).map(function(k){
+    return { symptom: k, count: symptomCounts[k] };
+  }).sort(function(a,b){ return b.count - a.count; }).slice(0, 20);
+
+  const dispenseItems = rows_(SHEETS.DISPENSE_ITEMS);
+  const itemCounts = {};
+  dispenseItems.forEach(function(x){
+    const code = String(x['Item Code'] || '');
+    itemCounts[code] = (itemCounts[code] || 0) + (Number(x.Qty) || 0);
+  });
+  const topItems = Object.keys(itemCounts).map(function(k){
+    return { itemCode: k, qty: itemCounts[k] };
+  }).sort(function(a,b){ return b.qty - a.qty; }).slice(0, 20);
+
+  return {
+    success: true,
+    data: {
+      summary: summary,
+      trends: trends,
+      topSymptoms: topSymptoms,
+      topItems: topItems,
+      lowStock: low,
+      expiryAlerts: expiryAlerts
+    }
+  };
+}
 
 function getDashboardSummary_(s) {
   if (!['ADMIN','MANAGER','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
@@ -770,6 +865,7 @@ function createUser_(p,s) {
   userSh.appendRow([
     staffId,name,role,salt+'$'+hash_(password,salt),true,'',t,t
   ]);
+  clearCache_(SHEETS.USERS);
   audit_(s,'CREATE_USER','USERS',staffId,'SUCCESS');
   return {success:true};
 }
@@ -797,6 +893,7 @@ function updateUser_(p,s) {
   data[idx][h['Updated At']] = now_();
 
   sh.getRange(1,1,data.length,data[0].length).setValues(data);
+  clearCache_(SHEETS.USERS);
   audit_(s,'UPDATE_USER','USERS',staffId,'SUCCESS');
   return {success:true};
 }
@@ -824,7 +921,7 @@ function resetPassword_(p,s) {
   data[idx][h['Password Hash']] = salt+'$'+hash_(password,salt);
   data[idx][h['Updated At']] = now_();
   sh.getRange(1,1,data.length,data[0].length).setValues(data);
-
+  clearCache_(SHEETS.USERS);
   audit_(s,'RESET_PASSWORD','USERS',staffId,'SUCCESS');
   return {success:true};
 }
@@ -890,6 +987,7 @@ function importStudents_(p,s) {
     sh.getRange(startRow, 1, newRows.length, newRows[0].length).setValues(newRows);
   }
 
+  clearCache_(SHEETS.STUDENTS);
   audit_(s, 'IMPORT_STUDENTS', 'STUDENTS', 'Count:' + (added + updated), 'SUCCESS');
   return { success: true, data: { added: added, updated: updated, total: added + updated } };
 }
@@ -1049,41 +1147,82 @@ function humanError_(code) {
   return map[code] || code;
 }
 
+var _ssInstance = null;
+var _sheetCache = {};
+var _rowsCache = {};
+
+function clearCache_(name) {
+  if (name) {
+    delete _rowsCache[name];
+  } else {
+    _rowsCache = {};
+  }
+}
+
+function invalidateStockCache_() {
+  clearCache_();
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.remove('cache:items_all');
+    cache.remove('cache:stock_all');
+  } catch(e) {}
+}
+
 function getSpreadsheet_() {
+  if (_ssInstance) return _ssInstance;
   const id = String(PropertiesService.getScriptProperties().getProperty('SHEET_ID') || '').trim();
-  if (id) return SpreadsheetApp.openById(id);
-  return SpreadsheetApp.getActiveSpreadsheet();
+  if (id) {
+    _ssInstance = SpreadsheetApp.openById(id);
+  } else {
+    _ssInstance = SpreadsheetApp.getActiveSpreadsheet();
+  }
+  return _ssInstance;
 }
 
 function getSheet_(name) {
+  if (_sheetCache[name]) return _sheetCache[name];
   const sh = getSpreadsheet_().getSheetByName(name);
   if (!sh) throw new Error('SHEET_NOT_FOUND:'+name);
+  _sheetCache[name] = sh;
   return sh;
 }
 
 function rows_(name) {
+  if (_rowsCache[name]) return _rowsCache[name];
   const sh = getSheet_(name);
   const range = sh.getDataRange();
   const values = range.getValues();
   if (!values.length || values.length < 2) return [];
-  const displayValues = range.getDisplayValues();
+
+  // Only read displayValues for USERS and STUDENTS to preserve leading zeros in Staff ID / Student ID
+  // For other sheets, getValues is much faster and avoids a second synchronous RPC to Google Sheets
+  const needDisplay = (name === SHEETS.USERS || name === SHEETS.STUDENTS);
+  const displayValues = needDisplay ? range.getDisplayValues() : null;
+
   const headers = values[0].map(String);
   const textCols = [
     'Staff ID', 'Student ID', 'Item Code', 'Lot Number', 'Stock Lot ID',
     'Visit ID', 'Dispense Item ID', 'Transaction ID', 'Log ID', 'Reference ID', 'Client Transaction ID'
   ];
-  return values.slice(1).map(function(row, rIdx){
+  const result = values.slice(1).map(function(row, rIdx){
     const obj = {};
     headers.forEach(function(h, i){
       if (textCols.indexOf(h) >= 0) {
-        const disp = displayValues[rIdx + 1] ? displayValues[rIdx + 1][i] : undefined;
-        obj[h] = String(disp !== undefined && disp !== '' ? disp : (row[i] !== undefined && row[i] !== null ? row[i] : '')).trim();
+        if (displayValues && displayValues[rIdx + 1]) {
+          const disp = displayValues[rIdx + 1][i];
+          obj[h] = String(disp !== undefined && disp !== '' ? disp : (row[i] !== undefined && row[i] !== null ? row[i] : '')).trim();
+        } else {
+          obj[h] = String(row[i] !== undefined && row[i] !== null ? row[i] : '').trim();
+        }
       } else {
         obj[h] = row[i];
       }
     });
     return obj;
   });
+
+  _rowsCache[name] = result;
+  return result;
 }
 
 function formatTextColumns_(sh, headers) {

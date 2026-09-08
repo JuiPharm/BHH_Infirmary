@@ -20,22 +20,44 @@ export const DashboardPage: React.FC = () => {
     loadDashboard();
   }, [trendDays]);
 
-  const loadDashboard = async () => {
+  const loadDashboard = async (forceRefresh: boolean = false) => {
     if (!session?.token) return;
     setLoading(true);
     try {
-      // 1. Fetch summary KPI first
-      const sumData = await api<DashboardSummaryData>('getDashboardSummary', {}, session.token);
-      setSummary(sumData);
-      setLoading(false);
+      // 1. First attempt: unified fast dashboard endpoint (1 single roundtrip)
+      try {
+        const unified = await api<any>(
+          'getDashboardData',
+          { days: trendDays },
+          session.token,
+          undefined,
+          20000,
+          forceRefresh
+        );
+        if (unified && unified.summary) {
+          setSummary(unified.summary);
+          setTrends(unified.trends || []);
+          setTopSymptoms(unified.topSymptoms || []);
+          setTopItems(unified.topItems || []);
+          setLowStockList(unified.lowStock || []);
+          setExpiryList(unified.expiryAlerts || []);
+          return;
+        }
+      } catch (unifiedErr) {
+        // Fallback gracefully to legacy individual endpoints if backend doesn't support getDashboardData yet
+        console.warn('Unified dashboard fetch fallback:', unifiedErr);
+      }
 
-      // 2. Fetch trends and details smoothly
+      // 2. Legacy fallback: fetch individual endpoints
+      const sumData = await api<DashboardSummaryData>('getDashboardSummary', {}, session.token, undefined, 20000, forceRefresh);
+      setSummary(sumData);
+
       const [trendData, sympData, itemData, lowData, expData] = await Promise.all([
-        api<VisitTrendData[]>('getVisitTrend', { days: trendDays }, session.token).catch(() => []),
-        api<TopSymptomData[]>('getTopSymptoms', {}, session.token).catch(() => []),
-        api<TopItemData[]>('getTopItems', {}, session.token).catch(() => []),
-        api<Item[]>('getLowStock', {}, session.token).catch(() => []),
-        api<StockLot[]>('getExpiryAlerts', { days: 90 }, session.token).catch(() => [])
+        api<VisitTrendData[]>('getVisitTrend', { days: trendDays }, session.token, undefined, 20000, forceRefresh).catch(() => []),
+        api<TopSymptomData[]>('getTopSymptoms', {}, session.token, undefined, 20000, forceRefresh).catch(() => []),
+        api<TopItemData[]>('getTopItems', {}, session.token, undefined, 20000, forceRefresh).catch(() => []),
+        api<Item[]>('getLowStock', {}, session.token, undefined, 20000, forceRefresh).catch(() => []),
+        api<StockLot[]>('getExpiryAlerts', { days: 90 }, session.token, undefined, 20000, forceRefresh).catch(() => [])
       ]);
 
       setTrends(trendData || []);
@@ -63,7 +85,7 @@ export const DashboardPage: React.FC = () => {
             สรุปสถิติผู้เข้ารับบริการ แนวโน้มอาการป่วย และสถานะเวชภัณฑ์คงคลัง
           </p>
         </div>
-        <button className="btn btn-outline btn-sm" onClick={loadDashboard} disabled={loading}>
+        <button className="btn btn-outline btn-sm" onClick={() => loadDashboard(true)} disabled={loading}>
           {loading ? 'กำลังโหลด...' : 'รีเฟรชข้อมูล'}
         </button>
       </div>

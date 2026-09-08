@@ -48,22 +48,23 @@ export const StockPage: React.FC = () => {
     loadData();
   }, [activeTab]);
 
-  const loadData = async () => {
+  const loadData = async (forceRefresh: boolean = false) => {
     if (!session?.token) return;
     setLoading(true);
     try {
       if (activeTab === 'ITEMS' || activeTab === 'RECEIVE') {
-        const data = await api<Item[]>('getStock', {}, session.token);
+        const data = await api<Item[]>('getStock', {}, session.token, undefined, 20000, forceRefresh);
         setItems(data || []);
       } else if (activeTab === 'LOTS' || activeTab === 'ADJUST') {
-        const [lotsData, itemsData] = await Promise.all([
-          api<StockLot[]>('getStockLots', {}, session.token),
-          api<Item[]>('getStock', {}, session.token)
-        ]);
+        const lotsPromise = api<StockLot[]>('getStockLots', {}, session.token, undefined, 20000, forceRefresh);
+        const itemsPromise = (items.length > 0 && !forceRefresh)
+          ? Promise.resolve(items)
+          : api<Item[]>('getStock', {}, session.token, undefined, 20000, forceRefresh);
+        const [lotsData, itemsData] = await Promise.all([lotsPromise, itemsPromise]);
         setLots(lotsData || []);
         setItems(itemsData || []);
       } else if (activeTab === 'TRANSACTIONS') {
-        const txData = await api<StockTransactionRecord[]>('getStockTransactions', { limit: 100 }, session.token);
+        const txData = await api<StockTransactionRecord[]>('getStockTransactions', { limit: 100 }, session.token, undefined, 20000, forceRefresh);
         setTransactions(txData || []);
       }
     } catch (err: any) {
@@ -325,7 +326,7 @@ export const StockPage: React.FC = () => {
                 🩹 เวชภัณฑ์
               </button>
             </div>
-            <button className="btn btn-outline btn-sm" onClick={loadData} disabled={loading} style={{ marginLeft: 'auto' }}>
+            <button className="btn btn-outline btn-sm" onClick={() => loadData(true)} disabled={loading} style={{ marginLeft: 'auto' }}>
               {loading ? 'โหลด...' : 'รีเฟรช'}
             </button>
           </div>
@@ -394,7 +395,7 @@ export const StockPage: React.FC = () => {
         <section className="card">
           <div className="card-header">
             <span className="card-title">รายการ Lots และวันหมดอายุ (FEFO Tracking)</span>
-            <button className="btn btn-outline btn-sm" onClick={loadData} disabled={loading}>
+            <button className="btn btn-outline btn-sm" onClick={() => loadData(true)} disabled={loading}>
               {loading ? 'โหลด...' : 'รีเฟรช'}
             </button>
           </div>
@@ -638,7 +639,7 @@ export const StockPage: React.FC = () => {
         <section className="card">
           <div className="card-header">
             <span className="card-title">📜 บัญชีประวัติการเคลื่อนไหวสต็อก (Stock Transactions)</span>
-            <button className="btn btn-outline btn-sm" onClick={loadData} disabled={loading}>
+            <button className="btn btn-outline btn-sm" onClick={() => loadData(true)} disabled={loading}>
               {loading ? 'โหลด...' : 'รีเฟรช'}
             </button>
           </div>

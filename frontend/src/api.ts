@@ -28,13 +28,67 @@ export function getErrorMessage(codeOrMsg?: string): string {
   return ERROR_MESSAGES_TH[codeOrMsg] || codeOrMsg;
 }
 
+// In-memory client-side cache for high-frequency read requests
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+const clientCache = new Map<string, CacheEntry<any>>();
+const CACHE_TTL_MS = 30000; // 30 seconds
+
+const CACHEABLE_ACTIONS = new Set([
+  'getItems',
+  'getStock',
+  'getStockLots',
+  'getDashboardData',
+  'getDashboardSummary',
+  'getConfig',
+  'getUsers'
+]);
+
+const MUTATION_ACTIONS = new Set([
+  'submitDispense',
+  'receiveStock',
+  'adjustStock',
+  'importStudents',
+  'importItems',
+  'createUser',
+  'updateUser',
+  'resetPassword',
+  'deactivateUser',
+  'updateConfig'
+]);
+
+export function clearClientCache(actionPrefix?: string): void {
+  if (!actionPrefix) {
+    clientCache.clear();
+    return;
+  }
+  for (const key of clientCache.keys()) {
+    if (key.startsWith(actionPrefix)) {
+      clientCache.delete(key);
+    }
+  }
+}
+
 export async function api<T>(
   action: string,
   payload: unknown = {},
   token?: string,
   url: string = DEFAULT_GAS_URL,
-  timeoutMs: number = 20000
+  timeoutMs: number = 20000,
+  bypassCache: boolean = false
 ): Promise<T> {
+  // Check client-side cache for read queries
+  const cacheKey = `${action}:${token || ''}:${JSON.stringify(payload || {})}`;
+  if (!bypassCache && CACHEABLE_ACTIONS.has(action)) {
+    const cached = clientCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return cached.data as T;
+    }
+  }
+
   let response: Response;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -84,6 +138,16 @@ export async function api<T>(
     const err = new Error(msg);
     (err as any).errorCode = code;
     throw err;
+  }
+
+  // Clear client cache when a mutating action succeeds
+  if (MUTATION_ACTIONS.has(action)) {
+    clearClientCache();
+  } else if (CACHEABLE_ACTIONS.has(action)) {
+    clientCache.set(cacheKey, {
+      data: json.data,
+      timestamp: Date.now()
+    });
   }
 
   return json.data as T;
