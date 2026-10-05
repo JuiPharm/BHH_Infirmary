@@ -16,7 +16,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setTab }) => {
   const role = session.role;
 
   const navItems = [
-    { id: 'dispense', label: 'จ่ายยา/เวชภัณฑ์', show: ['NURSE', 'ADMIN', 'SUPER_ADMIN'].includes(role) },
+    { id: 'visit', label: 'รับบริการใหม่', show: ['NURSE', 'ADMIN', 'SUPER_ADMIN'].includes(role) },
     { id: 'dashboard', label: 'แดชบอร์ด', show: ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) },
     { id: 'students', label: 'ประวัตินักเรียน', show: true },
     { id: 'stock', label: 'คลังเวชภัณฑ์', show: true },
@@ -48,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setTab }) => {
   return (
     <header className="header">
       <div className="header-inner">
-        <div className="brand" style={{ cursor: 'pointer' }} onClick={() => handleSelectTab('dispense')}>
+        <div className="brand" style={{ cursor: 'pointer' }} onClick={() => handleSelectTab('visit')}>
           <img
             src="https://lh5.googleusercontent.com/d/1r7PM1ogHIbxskvcauVIYaQOfSHXWGncO"
             alt="BHH Logo"

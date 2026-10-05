@@ -253,10 +253,16 @@ export const StudentsPage: React.FC = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                     {history.map((v) => {
                       let symptoms: string[] = [];
+                      let interventions: string[] = [];
                       try {
                         symptoms = JSON.parse(v.Symptoms || '[]');
                       } catch {
                         symptoms = v.Symptoms ? [v.Symptoms] : [];
+                      }
+                      try {
+                        interventions = JSON.parse(v.Interventions || '[]');
+                      } catch {
+                        interventions = [];
                       }
 
                       return (
@@ -278,6 +284,36 @@ export const StudentsPage: React.FC = () => {
                             <span style={{ color: '#64748b' }}>อาการ: </span>
                             <strong>{symptoms.join(', ') || '-'}{v['Other Symptom'] ? ` (${v['Other Symptom']})` : ''}</strong>
                           </div>
+
+                          {v.Assessment && (
+                            <div style={{ fontSize: '0.85rem', color: '#0f172a', marginBottom: '6px' }}>
+                              <span style={{ color: '#64748b' }}>Assessment: </span>
+                              <strong>{v.Assessment}</strong>
+                            </div>
+                          )}
+
+                          {(v.Temperature || v.Pulse || v.SpO2 || v['BP Systolic']) && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                              {v.Temperature && <span className="badge badge-gray">T {v.Temperature} °C</span>}
+                              {v['BP Systolic'] && <span className="badge badge-gray">BP {v['BP Systolic']}/{v['BP Diastolic'] || '-'} mmHg</span>}
+                              {v.Pulse && <span className="badge badge-gray">PR {v.Pulse}/min</span>}
+                              {v.SpO2 && <span className="badge badge-gray">SpO₂ {v.SpO2}%</span>}
+                            </div>
+                          )}
+
+                          {interventions.length > 0 && (
+                            <div style={{ fontSize: '0.82rem', color: '#475569', marginBottom: '8px' }}>
+                              <span style={{ color: '#64748b' }}>Intervention: </span>
+                              {interventions.join(', ')}
+                            </div>
+                          )}
+
+                          {v.Disposition && (
+                            <div style={{ marginBottom: '8px' }}>
+                              <span className="badge badge-primary">{v.Disposition}</span>
+                              {v['Outcome Note'] && <span style={{ marginLeft: '8px', fontSize: '0.82rem', color: '#475569' }}>{v['Outcome Note']}</span>}
+                            </div>
+                          )}
 
                           {v.Note && (
                             <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: '8px' }}>

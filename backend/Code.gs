@@ -10,7 +10,7 @@ const HEADERS = {
   STUDENTS:['Student ID','First Name','Last Name','Full Name','Grade','Class','Gender','Status','Updated At'],
   ITEM_MASTER:['Item Code','Item Type','Generic Name','Trade Name','QTY','Unit','Minimum Stock','Maximum Stock','Unit Cost','Active/Inactive'],
   STOCK_LOT:['Stock Lot ID','Item Code','Lot Number','Expiry Date','Received Date','Received Qty','Current Qty','Unit Cost','Supplier','Status'],
-  DISPENSE_HEADER:['Visit ID','Student ID','Visit Date','Visit Time','Symptoms','Other Symptom','Note','Staff ID','Status','Created At','Client Transaction ID'],
+  DISPENSE_HEADER:['Visit ID','Student ID','Visit Date','Visit Time','Symptoms','Other Symptom','Note','Staff ID','Status','Created At','Client Transaction ID','Temperature','BP Systolic','BP Diastolic','Pulse','Respiratory Rate','SpO2','Weight','Assessment','Interventions','Disposition','Outcome Note','Completed At'],
   DISPENSE_ITEMS:['Dispense Item ID','Visit ID','Item Code','Item Type','Item Name','Qty','Unit','Created At'],
   STOCK_TRANSACTION:['Transaction ID','Transaction Type','Reference ID','Item Code','Stock Lot ID','Qty','Before Qty','After Qty','Unit Cost','Reason','Staff ID','Timestamp'],
   SYMPTOMS:['Symptom ID','Symptom','Category','Active'],
@@ -53,7 +53,8 @@ function route_(r) {
     case 'getStudent': return getStudent_(r.payload || {});
     case 'getStudentHistory': return getStudentHistory_(r.payload || {}, session);
     case 'getItems': return getItems_(r.payload || {});
-    case 'submitDispense': return submitDispense_(r.payload || {}, session);
+    case 'submitDispense': return submitVisit_(r.payload || {}, session);
+    case 'submitVisit': return submitVisit_(r.payload || {}, session);
     case 'getDispenseHistory': return getDispenseHistory_(r.payload || {}, session);
     case 'getStock': return getStock_(r.payload || {}, session);
     case 'getStockLots': return getStockLots_(r.payload || {}, session);
@@ -311,13 +312,39 @@ function getItems_(p) {
 ========================= */
 
 function submitDispense_(p,s) {
+  return submitVisit_(p,s);
+}
+
+function submitVisit_(p,s) {
   if (!['NURSE','ADMIN','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
 
   const studentId = String(p.studentId || '').trim();
   const clientTx = String(p.clientTransactionId || '').trim();
-  if (!studentId || !Array.isArray(p.items) || !p.items.length || !clientTx) {
-    throw new Error('INVALID_INPUT');
+  const items = Array.isArray(p.items) ? p.items : [];
+  const symptoms = Array.isArray(p.symptoms) ? p.symptoms : [];
+  const assessment = String(p.assessment || '').trim();
+  const allowedInterventions = ['REST','WOUND_CARE','COLD_COMPRESS','WARM_COMPRESS','ORAL_HYDRATION','FIRST_AID','MEDICATION','MEDICAL_SUPPLY','PARENT_CONTACTED','REFERRED'];
+  const rawInterventions = (Array.isArray(p.interventions) ? p.interventions : []).map(function(x){
+    return String(x || '').trim().toUpperCase();
+  }).filter(Boolean);
+  if (rawInterventions.some(function(x){ return allowedInterventions.indexOf(x) < 0; })) {
+    throw new Error('INVALID_INTERVENTION');
   }
+  const interventions = rawInterventions.filter(function(x,idx,arr){ return arr.indexOf(x) === idx; });
+  const disposition = String(p.disposition || '').trim().toUpperCase();
+  const rawVitals = p.vitals || {};
+  const hasVitals = Object.keys(rawVitals).some(function(k){
+    return rawVitals[k] !== undefined && rawVitals[k] !== null && String(rawVitals[k]).trim() !== '';
+  });
+
+  if (!studentId || !clientTx) throw new Error('INVALID_INPUT');
+  if (!symptoms.length && !String(p.otherSymptom || '').trim() && !String(p.note || '').trim() && !assessment && !interventions.length && !hasVitals) {
+    throw new Error('VISIT_CLINICAL_DATA_REQUIRED');
+  }
+  if (!disposition) throw new Error('DISPOSITION_REQUIRED');
+
+  const allowedDisposition = ['RETURN_TO_CLASS','OBSERVATION','SEND_HOME','PARENT_PICKUP','REFER_CLINIC','REFER_HOSPITAL','EMERGENCY_TRANSFER','OTHER'];
+  if (allowedDisposition.indexOf(disposition) < 0) throw new Error('INVALID_DISPOSITION');
 
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
@@ -332,6 +359,7 @@ function submitDispense_(p,s) {
   try {
     const ss = getSpreadsheet_();
     const header = getSheet_(SHEETS.DISPENSE_HEADER);
+    ensureHeaders_(header, HEADERS.DISPENSE_HEADER);
     const detail = getSheet_(SHEETS.DISPENSE_ITEMS);
     const txn = getSheet_(SHEETS.STOCK_TRANSACTION);
     const lotSheet = getSheet_(SHEETS.STOCK_LOT);
@@ -352,7 +380,7 @@ function submitDispense_(p,s) {
     const plans = [];
     const requestedByItem = {};
 
-    p.items.forEach(function(raw) {
+    items.forEach(function(raw) {
       const itemCode = String(raw.itemCode || '').trim();
       const qty = Number(raw.qty);
       if (!itemCode || !Number.isInteger(qty) || qty <= 0) throw new Error('INVALID_QTY');
@@ -363,6 +391,10 @@ function submitDispense_(p,s) {
         return String(m['Item Code'] || '') === itemCode && isActive_(m['Active/Inactive']);
       });
       if (!master) throw new Error('ITEM_NOT_FOUND');
+
+      const normalizedType = normalizeItemType_(master['Item Type'] || raw.itemType || '');
+      const interventionCode = normalizedType === 'MEDICAL_SUPPLY' ? 'MEDICAL_SUPPLY' : 'MEDICATION';
+      if (interventions.indexOf(interventionCode) < 0) interventions.push(interventionCode);
 
       const eligible = [];
       for (let i=1;i<lotData.length;i++) {
@@ -455,23 +487,43 @@ function submitDispense_(p,s) {
       });
     });
 
-    const hrow = [
-      visitId,
-      studentId,
-      Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd'),
-      Utilities.formatDate(new Date(),getTimeZone_(),'HH:mm:ss'),
-      JSON.stringify(p.symptoms || []),
-      String(p.otherSymptom || ''),
-      String(p.note || ''),
-      s.staffId,
-      'COMPLETED',
-      t,
-      clientTx
-    ];
+    const vitals = validateVitals_(rawVitals);
+    const completedAt = t;
+    const visitValues = {
+      'Visit ID':visitId,
+      'Student ID':studentId,
+      'Visit Date':Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd'),
+      'Visit Time':Utilities.formatDate(new Date(),getTimeZone_(),'HH:mm:ss'),
+      'Symptoms':JSON.stringify(symptoms),
+      'Other Symptom':String(p.otherSymptom || ''),
+      'Note':String(p.note || ''),
+      'Staff ID':s.staffId,
+      'Status':'COMPLETED',
+      'Created At':t,
+      'Client Transaction ID':clientTx,
+      'Temperature':vitals.temperature,
+      'BP Systolic':vitals.bpSystolic,
+      'BP Diastolic':vitals.bpDiastolic,
+      'Pulse':vitals.pulse,
+      'Respiratory Rate':vitals.respiratoryRate,
+      'SpO2':vitals.spo2,
+      'Weight':vitals.weight,
+      'Assessment':assessment,
+      'Interventions':JSON.stringify(interventions),
+      'Disposition':disposition,
+      'Outcome Note':String(p.outcomeNote || ''),
+      'Completed At':completedAt
+    };
+    const currentHeader = header.getRange(1,1,1,header.getLastColumn()).getValues()[0].map(String);
+    const hrow = currentHeader.map(function(name){
+      return Object.prototype.hasOwnProperty.call(visitValues,name) ? visitValues[name] : '';
+    });
 
     // Write stock first, then records. Rollback is attempted on any error.
-    lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
-    stockWritten = true;
+    if (items.length) {
+      lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
+      stockWritten = true;
+    }
     header.getRange(header.getLastRow()+1,1,1,hrow.length).setValues([hrow]);
     if (drows.length) {
       detail.getRange(detail.getLastRow()+1,1,drows.length,drows[0].length).setValues(drows);
@@ -487,18 +539,20 @@ function submitDispense_(p,s) {
       return {itemCode:code,dispensedQty:requestedByItem[code]};
     });
 
-    return {success:true,data:{visitId,items:resultItems}};
+    return {success:true,data:{visitId:visitId,items:resultItems,disposition:disposition,status:'COMPLETED'}};
   } catch (err) {
     // Google Sheets has no native multi-sheet transaction. If any write after stock
     // mutation fails, restore the lot snapshot and remove rows appended by this request.
     try {
-      if (stockWritten && lotSnapshot && headerLastRow !== null && detailLastRow !== null && txnLastRow !== null) {
-        const lotSheetRb = getSheet_(SHEETS.STOCK_LOT);
-        lotSheetRb.getRange(1,1,lotSnapshot.length,lotSnapshot[0].length).setValues(lotSnapshot);
+      if (headerLastRow !== null && detailLastRow !== null && txnLastRow !== null) {
+        if (stockWritten && lotSnapshot) {
+          const lotSheetRb = getSheet_(SHEETS.STOCK_LOT);
+          lotSheetRb.getRange(1,1,lotSnapshot.length,lotSnapshot[0].length).setValues(lotSnapshot);
+        }
         truncateAfterRow_(getSheet_(SHEETS.DISPENSE_HEADER), headerLastRow);
         truncateAfterRow_(getSheet_(SHEETS.DISPENSE_ITEMS), detailLastRow);
         truncateAfterRow_(getSheet_(SHEETS.STOCK_TRANSACTION), txnLastRow);
-        syncItemQty_(lotSnapshot);
+        if (lotSnapshot) syncItemQty_(lotSnapshot);
         invalidateStockCache_();
       }
     } catch (rollbackErr) {
@@ -1286,7 +1340,12 @@ function humanError_(code) {
     INVALID_USER_ROLE:'Role ไม่ถูกต้อง',
     ROLE_ESCALATION_DENIED:'ไม่มีสิทธิ์กำหนดหรือจัดการ Role ระดับนี้',
     CANNOT_DEACTIVATE_SELF:'ไม่สามารถระงับบัญชีของตนเองได้',
-    TRANSACTION_ROLLBACK_FAILED:'เกิดข้อผิดพลาดร้ายแรงระหว่างย้อนคืนรายการ กรุณาหยุดใช้งานรายการนี้และให้ผู้ดูแลตรวจสอบ Audit Log'
+    TRANSACTION_ROLLBACK_FAILED:'เกิดข้อผิดพลาดร้ายแรงระหว่างย้อนคืนรายการ กรุณาหยุดใช้งานรายการนี้และให้ผู้ดูแลตรวจสอบ Audit Log',
+    VISIT_CLINICAL_DATA_REQUIRED:'กรุณาระบุอาการ บันทึก หรือผลการประเมินอย่างน้อย 1 รายการ',
+    DISPOSITION_REQUIRED:'กรุณาระบุผลลัพธ์หลังรับบริการ (Disposition)',
+    INVALID_DISPOSITION:'ค่า Disposition ไม่ถูกต้อง',
+    INVALID_VITAL_SIGN:'ค่าชีพจรหรือสัญญาณชีพไม่ถูกต้อง',
+    INVALID_INTERVENTION:'ค่า Intervention ไม่ถูกต้อง'
   };
   return map[code] || code;
 }
@@ -1389,10 +1448,16 @@ function ensureHeaders_(sh,headers) {
     formatTextColumns_(sh, headers);
     return;
   }
-  const existing = sh.getRange(1,1,1,Math.max(sh.getLastColumn(),headers.length)).getValues()[0];
-  const missing = headers.some(function(h,i){return String(existing[i] || '') !== h;});
-  if (missing && sh.getLastRow() <= 1) {
-    sh.getRange(1,1,1,headers.length).setValues([headers]);
+
+  const existingCount = Math.max(sh.getLastColumn(), 1);
+  const existing = sh.getRange(1,1,1,existingCount).getValues()[0].map(function(x){return String(x || '');});
+  const missingHeaders = headers.filter(function(h){return existing.indexOf(h) < 0;});
+
+  // Existing production sheets are migrated by appending only new columns.
+  // This preserves every old column position and all historical rows.
+  if (missingHeaders.length) {
+    const startCol = sh.getLastColumn() + 1;
+    sh.getRange(1,startCol,1,missingHeaders.length).setValues([missingHeaders]);
   }
   formatTextColumns_(sh, headers);
 }
@@ -1514,6 +1579,47 @@ function isUsableLot_(status, expiryDate, currentQty, nowDate) {
   if (!exp) return false;
   const now = nowDate instanceof Date ? nowDate : new Date();
   return exp.getTime() >= now.getTime();
+}
+
+function validateVitals_(raw) {
+  const v = raw || {};
+  const out = {
+    temperature:normalizeOptionalNumber_(v.temperature),
+    bpSystolic:normalizeOptionalInteger_(v.bpSystolic),
+    bpDiastolic:normalizeOptionalInteger_(v.bpDiastolic),
+    pulse:normalizeOptionalInteger_(v.pulse),
+    respiratoryRate:normalizeOptionalInteger_(v.respiratoryRate),
+    spo2:normalizeOptionalInteger_(v.spo2),
+    weight:normalizeOptionalNumber_(v.weight)
+  };
+
+  assertRange_(out.temperature,30,45);
+  assertRange_(out.bpSystolic,40,260);
+  assertRange_(out.bpDiastolic,20,180);
+  assertRange_(out.pulse,20,250);
+  assertRange_(out.respiratoryRate,5,100);
+  assertRange_(out.spo2,50,100);
+  assertRange_(out.weight,1,300);
+  return out;
+}
+
+function assertRange_(value,min,max) {
+  if (value === '') return;
+  if (Number(value) < min || Number(value) > max) throw new Error('INVALID_VITAL_SIGN');
+}
+
+function normalizeOptionalNumber_(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return '';
+  const n = Number(value);
+  if (!isFinite(n)) throw new Error('INVALID_VITAL_SIGN');
+  return n;
+}
+
+function normalizeOptionalInteger_(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return '';
+  const n = Number(value);
+  if (!Number.isInteger(n)) throw new Error('INVALID_VITAL_SIGN');
+  return n;
 }
 
 function updateUserLastLogin_(staffId) {
