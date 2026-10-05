@@ -313,6 +313,13 @@ function submitDispense_(p,s) {
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
 
+  // Rollback state must live outside the try block so catch can restore it.
+  let lotSnapshot = null;
+  let headerLastRow = null;
+  let detailLastRow = null;
+  let txnLastRow = null;
+  let stockWritten = false;
+
   try {
     const ss = getSpreadsheet_();
     const header = getSheet_(SHEETS.DISPENSE_HEADER);
@@ -389,11 +396,10 @@ function submitDispense_(p,s) {
       plans.push({raw:raw,master:master,allocations:allocations});
     });
 
-    const lotSnapshot = lotData.map(function(r){return r.slice();});
-    const headerLastRow = header.getLastRow();
-    const detailLastRow = detail.getLastRow();
-    const txnLastRow = txn.getLastRow();
-    let stockWritten = false;
+    lotSnapshot = lotData.map(function(r){return r.slice();});
+    headerLastRow = header.getLastRow();
+    detailLastRow = detail.getLastRow();
+    txnLastRow = txn.getLastRow();
     const visitId = 'V'+Utilities.getUuid().replace(/-/g,'').slice(0,16);
     const t = now_();
     const drows = [];
@@ -477,7 +483,7 @@ function submitDispense_(p,s) {
     // Google Sheets has no native multi-sheet transaction. If any write after stock
     // mutation fails, restore the lot snapshot and remove rows appended by this request.
     try {
-      if (typeof stockWritten !== 'undefined' && stockWritten && typeof lotSnapshot !== 'undefined') {
+      if (stockWritten && lotSnapshot && headerLastRow !== null && detailLastRow !== null && txnLastRow !== null) {
         const lotSheetRb = getSheet_(SHEETS.STOCK_LOT);
         lotSheetRb.getRange(1,1,lotSnapshot.length,lotSnapshot[0].length).setValues(lotSnapshot);
         truncateAfterRow_(getSheet_(SHEETS.DISPENSE_HEADER), headerLastRow);
