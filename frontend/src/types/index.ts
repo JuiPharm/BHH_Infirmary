@@ -18,6 +18,32 @@ export interface Student {
   status?: string;
 }
 
+export interface StudentRecentVisit {
+  visitId: string;
+  visitDate: string;
+  visitTime: string;
+  symptoms: string;
+  disposition: string;
+}
+
+export interface StudentSafetyProfile {
+  studentId: string;
+  drugAllergy: string;
+  foodAllergy: string;
+  chronicDiseases: string;
+  asthma: boolean;
+  epilepsy: boolean;
+  diabetes: boolean;
+  specialCondition: string;
+  emergencyContactName: string;
+  emergencyContactRelation: string;
+  emergencyContactPhone: string;
+  updatedAt: string;
+  updatedBy: string;
+  recentVisit30dCount: number;
+  recentVisits: StudentRecentVisit[];
+}
+
 export interface Item {
   'Item Code': string;
   'Item Type': 'DRUG' | 'MEDICAL_SUPPLY' | string;
