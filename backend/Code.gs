@@ -324,9 +324,13 @@ function submitVisit_(p,s) {
   const symptoms = Array.isArray(p.symptoms) ? p.symptoms : [];
   const assessment = String(p.assessment || '').trim();
   const allowedInterventions = ['REST','WOUND_CARE','COLD_COMPRESS','WARM_COMPRESS','ORAL_HYDRATION','FIRST_AID','MEDICATION','MEDICAL_SUPPLY','PARENT_CONTACTED','REFERRED'];
-  const interventions = (Array.isArray(p.interventions) ? p.interventions : []).map(function(x){
+  const rawInterventions = (Array.isArray(p.interventions) ? p.interventions : []).map(function(x){
     return String(x || '').trim().toUpperCase();
-  }).filter(function(x){ return allowedInterventions.indexOf(x) >= 0; });
+  }).filter(Boolean);
+  if (rawInterventions.some(function(x){ return allowedInterventions.indexOf(x) < 0; })) {
+    throw new Error('INVALID_INTERVENTION');
+  }
+  const interventions = rawInterventions.filter(function(x,idx,arr){ return arr.indexOf(x) === idx; });
   const disposition = String(p.disposition || '').trim().toUpperCase();
   const rawVitals = p.vitals || {};
   const hasVitals = Object.keys(rawVitals).some(function(k){
@@ -387,6 +391,10 @@ function submitVisit_(p,s) {
         return String(m['Item Code'] || '') === itemCode && isActive_(m['Active/Inactive']);
       });
       if (!master) throw new Error('ITEM_NOT_FOUND');
+
+      const normalizedType = normalizeItemType_(master['Item Type'] || raw.itemType || '');
+      const interventionCode = normalizedType === 'MEDICAL_SUPPLY' ? 'MEDICAL_SUPPLY' : 'MEDICATION';
+      if (interventions.indexOf(interventionCode) < 0) interventions.push(interventionCode);
 
       const eligible = [];
       for (let i=1;i<lotData.length;i++) {
@@ -1336,7 +1344,8 @@ function humanError_(code) {
     VISIT_CLINICAL_DATA_REQUIRED:'กรุณาระบุอาการ บันทึก หรือผลการประเมินอย่างน้อย 1 รายการ',
     DISPOSITION_REQUIRED:'กรุณาระบุผลลัพธ์หลังรับบริการ (Disposition)',
     INVALID_DISPOSITION:'ค่า Disposition ไม่ถูกต้อง',
-    INVALID_VITAL_SIGN:'ค่าชีพจรหรือสัญญาณชีพไม่ถูกต้อง'
+    INVALID_VITAL_SIGN:'ค่าชีพจรหรือสัญญาณชีพไม่ถูกต้อง',
+    INVALID_INTERVENTION:'ค่า Intervention ไม่ถูกต้อง'
   };
   return map[code] || code;
 }
