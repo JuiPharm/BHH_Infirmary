@@ -20,6 +20,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setTab }) => {
     { id: 'dashboard', label: 'แดชบอร์ด', show: ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) },
     { id: 'students', label: 'ประวัตินักเรียน', show: true },
     { id: 'stock', label: 'คลังเวชภัณฑ์', show: true },
+    { id: 'inventory-ops', label: 'Inventory Ops', show: ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) },
     { id: 'users', label: 'จัดการผู้ใช้', show: ['ADMIN', 'SUPER_ADMIN'].includes(role) },
     { id: 'config', label: 'ตั้งค่าระบบ', show: ['SUPER_ADMIN'].includes(role) },
   ].filter(item => item.show);
