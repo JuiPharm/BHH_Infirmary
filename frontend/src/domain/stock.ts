@@ -12,6 +12,22 @@ export function totalStock(lots: Lot[]): number {
     .reduce((s, l) => s + Math.max(0, l.currentQty), 0);
 }
 
+export function isLotUsable(lot: Lot, today: Date = new Date()): boolean {
+  if (!(lot.currentQty > 0)) return false;
+  if ((lot.status || 'ACTIVE').trim().toUpperCase() !== 'ACTIVE') return false;
+
+  const exp = new Date(`${lot.expiry}T23:59:59.999`);
+  if (Number.isNaN(exp.getTime())) return false;
+
+  return exp.getTime() >= today.getTime();
+}
+
+export function usableStock(lots: Lot[], today: Date = new Date()): number {
+  return lots
+    .filter(l => isLotUsable(l, today))
+    .reduce((sum, l) => sum + Math.max(0, l.currentQty), 0);
+}
+
 export function validateDispenseQty(qty: number, available: number): boolean {
   if (!Number.isInteger(qty) || qty <= 0) throw new Error('INVALID_QTY');
   if (qty > available) throw new Error('INSUFFICIENT_STOCK');
@@ -19,15 +35,7 @@ export function validateDispenseQty(qty: number, available: number): boolean {
 }
 
 export function allocateFEFO(lots: Lot[], qty: number, today: Date = new Date()): { lotId: string; qty: number }[] {
-  // Normalize today to start of day for comparison
-  const checkDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-  const eligible = lots.filter(l => {
-    if (l.currentQty <= 0) return false;
-    if ((l.status || 'ACTIVE').toUpperCase() === 'INACTIVE') return false;
-    const exp = new Date(l.expiry + 'T23:59:59');
-    return !isNaN(exp.getTime()) && exp >= checkDate;
-  });
+  const eligible = lots.filter(l => isLotUsable(l, today));
 
   const available = eligible.reduce((s, l) => s + l.currentQty, 0);
   validateDispenseQty(qty, available);
