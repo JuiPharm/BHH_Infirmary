@@ -20,7 +20,10 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   USER_NOT_FOUND: 'ไม่พบข้อมูลผู้ใช้นี้',
   SERVER_ERROR: 'เกิดข้อผิดพลาดในการประมวลผลของเซิร์ฟเวอร์',
   NETWORK_ERROR: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ต',
-  TIMEOUT_ERROR: 'การเชื่อมต่อเซิร์ฟเวอร์ใช้เวลานานเกินไป กรุณากดลองใหม่อีกครั้ง'
+  TIMEOUT_ERROR: 'การเชื่อมต่อเซิร์ฟเวอร์ใช้เวลานานเกินไป กรุณากดลองใหม่อีกครั้ง',
+  ROLE_ESCALATION_DENIED: 'คุณไม่มีสิทธิ์กำหนดหรือจัดการ Role ระดับนี้',
+  CANNOT_DEACTIVATE_SELF: 'ไม่สามารถระงับบัญชีของตนเองได้',
+  TRANSACTION_ROLLBACK_FAILED: 'เกิดข้อผิดพลาดระหว่างย้อนคืนรายการ กรุณาหยุดทำรายการและติดต่อผู้ดูแลระบบ'
 };
 
 export function getErrorMessage(codeOrMsg?: string): string {
