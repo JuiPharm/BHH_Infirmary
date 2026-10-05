@@ -1273,7 +1273,20 @@ function importStudents_(p,s) {
       data[r][h['Updated At']] = t;
       updated++;
     } else {
-      newRows.push([id, fName, lName, fullName, grade, className, gender, status, t]);
+      const values = {
+        'Student ID':id,
+        'First Name':fName,
+        'Last Name':lName,
+        'Full Name':fullName,
+        'Grade':grade,
+        'Class':className,
+        'Gender':gender,
+        'Status':status,
+        'Updated At':t
+      };
+      newRows.push(data[0].map(function(header){
+        return Object.prototype.hasOwnProperty.call(values, String(header)) ? values[String(header)] : '';
+      }));
       rowMap[id] = data.length + newRows.length - 1;
       added++;
     }
@@ -1571,6 +1584,7 @@ function ensureHeaders_(sh,headers) {
   if (missingHeaders.length) {
     const startCol = sh.getLastColumn() + 1;
     sh.getRange(1,startCol,1,missingHeaders.length).setValues([missingHeaders]);
+    clearCache_(sh.getName());
   }
   formatTextColumns_(sh, headers);
 }
