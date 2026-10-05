@@ -287,6 +287,7 @@ function getStudentSafetyProfile_(p,s) {
 
   const recentVisits = rows_(SHEETS.DISPENSE_HEADER).filter(function(v){
     if (String(v['Student ID'] || '').trim() !== id) return false;
+    if (String(v.Status || '').trim().toUpperCase() === 'CANCELLED') return false;
     const created = parseDate_(v['Created At']) || parseDate_(v['Visit Date']);
     return created && !isNaN(created.getTime()) && created.getTime() >= cutoff.getTime();
   }).sort(function(a,b){
