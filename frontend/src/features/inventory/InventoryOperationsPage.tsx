@@ -60,16 +60,17 @@ export const InventoryOperationsPage: React.FC = () => {
     loadAll();
   }, [session?.token]);
 
+  const countableLots = useMemo(() => lots.filter(isPhysicalLot), [lots]);
+
   const physicalLots = useMemo(
     () =>
-      lots.filter((lot) => {
-        if (!isPhysicalLot(lot)) return false;
+      countableLots.filter((lot) => {
         const q = filter.trim().toLowerCase();
         if (!q) return true;
         return [lot['Stock Lot ID'], lot['Item Code'], lot['Lot Number'], lot.Status]
           .some((v) => String(v || '').toLowerCase().includes(q));
       }),
-    [lots, filter]
+    [countableLots, filter]
   );
 
   const selectedStatusLot = lots.find((lot) => lot['Stock Lot ID'] === statusLotId);
@@ -117,14 +118,14 @@ export const InventoryOperationsPage: React.FC = () => {
   };
 
   const selectedCountLines = useMemo(() => {
-    return physicalLots
+    return countableLots
       .filter((lot) => countValues[lot['Stock Lot ID']] !== undefined && countValues[lot['Stock Lot ID']] !== '')
       .map((lot) => ({
         lot,
         countedQty: Number(countValues[lot['Stock Lot ID']])
       }))
       .filter((line) => Number.isInteger(line.countedQty) && line.countedQty >= 0);
-  }, [physicalLots, countValues]);
+  }, [countableLots, countValues]);
 
   const handleSubmitCount = async () => {
     if (!session?.token || !selectedCountLines.length) {
