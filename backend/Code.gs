@@ -41,8 +41,8 @@ function out_(obj) {
 function route_(r) {
   r = r || {};
   const action = String(r.action || '');
-  if (action === 'setupSystem') return setupSystem();
-  if (action === 'seedUser') return seedUser();
+  if (action === 'setupSystem') return setupSystem_(r);
+  if (action === 'seedUser') return seedUser_(r);
   if (action === 'login') return login_(r.payload || {});
   if (action === 'logout') return logout_(r.token);
   const session = requireSession_(r.token);
@@ -84,7 +84,8 @@ function route_(r) {
    SETUP / CONFIG
 ========================= */
 
-function setupSystem() {
+function setupSystem_(request) {
+  requireBootstrapAccess_(request);
   const ss = getSpreadsheet_();
   Object.keys(HEADERS).forEach(function(name) {
     const sh = ss.getSheetByName(name) || ss.insertSheet(name);
@@ -122,7 +123,8 @@ function setDefaultConfigs_() {
   INITIAL_ADMIN_PASSWORD
   INITIAL_ADMIN_ROLE   (default ADMIN)
 */
-function seedUser() {
+function seedUser_(request) {
+  requireBootstrapAccess_(request);
   const props = PropertiesService.getScriptProperties();
   const staffId = String(props.getProperty('INITIAL_ADMIN_ID') || '').trim();
   const name = String(props.getProperty('INITIAL_ADMIN_NAME') || '').trim();
@@ -354,7 +356,7 @@ function submitDispense_(p,s) {
 
         const current = Number(r[lh['Current Qty']]) || 0;
         const expiry = parseDate_(r[lh['Expiry Date']]);
-        if (current > 0 && expiry && !isNaN(expiry.getTime()) && expiry >= new Date()) {
+        if (isUsableLot_(String(r[lh['Status']] || ''), expiry, current, new Date())) {
           eligible.push({
             row:i,
             lotId:String(r[lh['Stock Lot ID']] || ''),
@@ -388,6 +390,10 @@ function submitDispense_(p,s) {
     });
 
     const lotSnapshot = lotData.map(function(r){return r.slice();});
+    const headerLastRow = header.getLastRow();
+    const detailLastRow = detail.getLastRow();
+    const txnLastRow = txn.getLastRow();
+    let stockWritten = false;
     const visitId = 'V'+Utilities.getUuid().replace(/-/g,'').slice(0,16);
     const t = now_();
     const drows = [];
@@ -450,6 +456,7 @@ function submitDispense_(p,s) {
 
     // Write stock first, then records. Rollback is attempted on any error.
     lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
+    stockWritten = true;
     header.getRange(header.getLastRow()+1,1,1,hrow.length).setValues([hrow]);
     if (drows.length) {
       detail.getRange(detail.getLastRow()+1,1,drows.length,drows[0].length).setValues(drows);
@@ -467,8 +474,22 @@ function submitDispense_(p,s) {
 
     return {success:true,data:{visitId,items:resultItems}};
   } catch (err) {
-    // The entire operation is protected by LockService. Any exception occurs before
-    // returning success; no partial business transaction is intentionally reported.
+    // Google Sheets has no native multi-sheet transaction. If any write after stock
+    // mutation fails, restore the lot snapshot and remove rows appended by this request.
+    try {
+      if (typeof stockWritten !== 'undefined' && stockWritten && typeof lotSnapshot !== 'undefined') {
+        const lotSheetRb = getSheet_(SHEETS.STOCK_LOT);
+        lotSheetRb.getRange(1,1,lotSnapshot.length,lotSnapshot[0].length).setValues(lotSnapshot);
+        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_HEADER), headerLastRow);
+        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_ITEMS), detailLastRow);
+        truncateAfterRow_(getSheet_(SHEETS.STOCK_TRANSACTION), txnLastRow);
+        syncItemQty_(lotSnapshot);
+        invalidateStockCache_();
+      }
+    } catch (rollbackErr) {
+      auditSystem_('ROLLBACK_FAILED','DISPENSE',String(err && err.message || err),'FAILED');
+      throw new Error('TRANSACTION_ROLLBACK_FAILED');
+    }
     throw err;
   } finally {
     lock.releaseLock();
@@ -541,9 +562,24 @@ function receiveStock_(p,s) {
     const sh = getSheet_(SHEETS.STOCK_LOT);
     const id = 'L'+Utilities.getUuid().replace(/-/g,'').slice(0,14);
     const t = now_();
+    const unitCost = Number(p.unitCost)||0;
     sh.appendRow([
       id,itemCode,String(p.lotNumber || ''),expiry,t,qty,qty,
-      Number(p.unitCost)||0,String(p.supplier || ''),'ACTIVE'
+      unitCost,String(p.supplier || ''),'ACTIVE'
+    ]);
+    getSheet_(SHEETS.STOCK_TRANSACTION).appendRow([
+      'ST'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
+      'RECEIVE',
+      id,
+      itemCode,
+      id,
+      qty,
+      0,
+      qty,
+      unitCost,
+      'Receive stock',
+      s.staffId,
+      t
     ]);
     syncItemQty_();
     audit_(s,'RECEIVE','STOCK',id,'SUCCESS');
@@ -582,7 +618,7 @@ function adjustStock_(p,s) {
 
     getSheet_(SHEETS.STOCK_TRANSACTION).appendRow([
       'ST'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
-      'ADJUST',
+      delta > 0 ? 'ADJUST_IN' : 'ADJUST_OUT',
       reason,
       String(p.itemCode || data[idx][h['Item Code']] || ''),
       lotId,
@@ -617,8 +653,11 @@ function syncItemQty_(optionalLotData) {
   for (let i=1;i<lotData.length;i++) {
     const item = String(lotData[i][lh['Item Code']] || '');
     const qty = Number(lotData[i][lh['Current Qty']]) || 0;
-    const status = String(lotData[i][lh['Status']] || '').toUpperCase();
-    if (item && status !== 'INACTIVE') totals[item] = (totals[item] || 0) + qty;
+    const status = String(lotData[i][lh['Status']] || '');
+    const expiry = parseDate_(lotData[i][lh['Expiry Date']]);
+    if (item && isUsableLot_(status, expiry, qty, new Date())) {
+      totals[item] = (totals[item] || 0) + qty;
+    }
   }
 
   for (let i=1;i<masterData.length;i++) {
@@ -853,6 +892,7 @@ function createUser_(p,s) {
 
   if (!staffId || !name || !password) throw new Error('INVALID_INPUT');
   validateRole_(role);
+  assertCanAssignRole_(s, role);
 
   if (rows_(SHEETS.USERS).some(function(x){return String(x['Staff ID']).trim()===staffId;})) {
     throw new Error('USER_ALREADY_EXISTS');
@@ -883,10 +923,14 @@ function updateUser_(p,s) {
   });
   if (idx<1) throw new Error('USER_NOT_FOUND');
 
+  const currentRole = String(data[idx][h['Role']] || '').trim().toUpperCase();
+  assertCanManageUser_(s, staffId, currentRole);
+
   if (p.name !== undefined) data[idx][h['Name']] = String(p.name || '').trim();
   if (p.role !== undefined) {
     const role = String(p.role || '').trim().toUpperCase();
     validateRole_(role);
+    assertCanAssignRole_(s, role);
     data[idx][h['Role']] = role;
   }
   if (p.active !== undefined) data[idx][h['Active']] = Boolean(p.active);
@@ -900,6 +944,9 @@ function updateUser_(p,s) {
 
 function deactivateUser_(p,s) {
   requireRole_(s,['ADMIN','SUPER_ADMIN']);
+  if (String(p.staffId || '').trim() === String(s.staffId || '').trim()) {
+    throw new Error('CANNOT_DEACTIVATE_SELF');
+  }
   return updateUser_({staffId:p.staffId,active:false},s);
 }
 
@@ -916,6 +963,9 @@ function resetPassword_(p,s) {
     return n>0 && String(r[h['Staff ID']] || '').trim()===staffId;
   });
   if (idx<1) throw new Error('USER_NOT_FOUND');
+
+  const currentRole = String(data[idx][h['Role']] || '').trim().toUpperCase();
+  assertCanManageUser_(s, staffId, currentRole);
 
   const salt = Utilities.getUuid().replace(/-/g,'').slice(0,16);
   data[idx][h['Password Hash']] = salt+'$'+hash_(password,salt);
@@ -1142,7 +1192,10 @@ function humanError_(code) {
     INITIAL_ADMIN_NAME_NOT_SET:'ยังไม่ได้ตั้ง INITIAL_ADMIN_NAME ใน Script Properties',
     INITIAL_ADMIN_PASSWORD_NOT_SET:'ยังไม่ได้ตั้ง INITIAL_ADMIN_PASSWORD ใน Script Properties',
     INITIAL_ADMIN_ROLE_NOT_SET:'ยังไม่ได้ตั้ง Role ของ Initial Admin',
-    INVALID_USER_ROLE:'Role ไม่ถูกต้อง'
+    INVALID_USER_ROLE:'Role ไม่ถูกต้อง',
+    ROLE_ESCALATION_DENIED:'ไม่มีสิทธิ์กำหนดหรือจัดการ Role ระดับนี้',
+    CANNOT_DEACTIVATE_SELF:'ไม่สามารถระงับบัญชีของตนเองได้',
+    TRANSACTION_ROLLBACK_FAILED:'เกิดข้อผิดพลาดร้ายแรงระหว่างย้อนคืนรายการ กรุณาหยุดใช้งานรายการนี้และให้ผู้ดูแลตรวจสอบ Audit Log'
   };
   return map[code] || code;
 }
@@ -1314,6 +1367,62 @@ function validateRole_(role) {
 
 function requireRole_(s,allowed) {
   if (!allowed.includes(String(s.role || '').toUpperCase())) throw new Error('ACCESS_DENIED');
+}
+
+function requireBootstrapAccess_(request) {
+  // First-install bootstrap is allowed only while there are no users.
+  // Once a user exists, setup/seed require a valid SUPER_ADMIN session token.
+  try {
+    const ss = getSpreadsheet_();
+    const usersSheet = ss && ss.getSheetByName(SHEETS.USERS);
+    if (!usersSheet || usersSheet.getLastRow() <= 1) return true;
+  } catch (e) {
+    // setupSystem must still be able to initialize an empty spreadsheet.
+    return true;
+  }
+
+  const token = request && request.token;
+  const session = requireSession_(token);
+  requireRole_(session,['SUPER_ADMIN']);
+  return true;
+}
+
+function assertCanAssignRole_(actor, role) {
+  const actorRole = String(actor && actor.role || '').toUpperCase();
+  const targetRole = String(role || '').toUpperCase();
+  if (actorRole === 'SUPER_ADMIN') return true;
+  if (actorRole === 'ADMIN' && ['NURSE','MANAGER'].includes(targetRole)) return true;
+  throw new Error('ROLE_ESCALATION_DENIED');
+}
+
+function assertCanManageUser_(actor, targetStaffId, targetRole) {
+  const actorRole = String(actor && actor.role || '').toUpperCase();
+  const tRole = String(targetRole || '').toUpperCase();
+  if (actorRole === 'SUPER_ADMIN') return true;
+  if (actorRole === 'ADMIN' && ['NURSE','MANAGER'].includes(tRole)) return true;
+  throw new Error('ROLE_ESCALATION_DENIED');
+}
+
+function truncateAfterRow_(sheet, keepLastRow) {
+  const currentLastRow = sheet.getLastRow();
+  if (currentLastRow > keepLastRow) {
+    sheet.deleteRows(keepLastRow + 1, currentLastRow - keepLastRow);
+  }
+}
+
+function endOfDay_(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
+function isUsableLot_(status, expiryDate, currentQty, nowDate) {
+  const normalizedStatus = String(status || 'ACTIVE').trim().toUpperCase();
+  if (normalizedStatus !== 'ACTIVE') return false;
+  if (!(Number(currentQty) > 0)) return false;
+  const exp = endOfDay_(expiryDate);
+  if (!exp) return false;
+  const now = nowDate instanceof Date ? nowDate : new Date();
+  return exp.getTime() >= now.getTime();
 }
 
 function updateUserLastLogin_(staffId) {
