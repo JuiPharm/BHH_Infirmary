@@ -19,9 +19,10 @@ const HEADERS = {
 };
 
 const ROLES = ['NURSE','ADMIN','MANAGER','SUPER_ADMIN'];
+const API_VERSION = '2.3.0';
 
 function doGet(e) {
-  return out_({success:true,service:'School Nurse System API',timestamp:now_()});
+  return out_({success:true,service:'School Nurse System API',apiVersion:API_VERSION,timestamp:now_()});
 }
 
 function doPost(e) {
