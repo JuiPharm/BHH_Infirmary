@@ -304,9 +304,9 @@ function getStudentSafetyProfile_(p,s) {
       epilepsy:boolValue_(student.Epilepsy),
       diabetes:boolValue_(student.Diabetes),
       specialCondition:String(student['Special Condition'] || ''),
-      emergencyContactName:String(student['Emergency Contact Name'] || ''),
-      emergencyContactRelation:String(student['Emergency Contact Relation'] || ''),
-      emergencyContactPhone:String(student['Emergency Contact Phone'] || ''),
+      emergencyContactName:s.role === 'MANAGER' ? '' : String(student['Emergency Contact Name'] || ''),
+      emergencyContactRelation:s.role === 'MANAGER' ? '' : String(student['Emergency Contact Relation'] || ''),
+      emergencyContactPhone:s.role === 'MANAGER' ? '' : String(student['Emergency Contact Phone'] || ''),
       updatedAt:String(student['Safety Updated At'] || ''),
       updatedBy:String(student['Safety Updated By'] || ''),
       recentVisit30dCount:recentVisits.length,
@@ -328,6 +328,9 @@ function updateStudentSafetyProfile_(p,s) {
   const id = String(p.studentId || '').trim();
   if (!id) throw new Error('INVALID_INPUT');
 
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
   const sh = getSheet_(SHEETS.STUDENTS);
   ensureHeaders_(sh, HEADERS.STUDENTS);
   const data = sh.getDataRange().getValues();
@@ -340,15 +343,15 @@ function updateStudentSafetyProfile_(p,s) {
   const phone = String(p.emergencyContactPhone || '').trim();
   if (phone && !/^[0-9+()\-\s]{6,30}$/.test(phone)) throw new Error('INVALID_PHONE');
 
-  data[idx][h['Drug Allergy']] = String(p.drugAllergy || '').trim();
-  data[idx][h['Food Allergy']] = String(p.foodAllergy || '').trim();
-  data[idx][h['Chronic Diseases']] = String(p.chronicDiseases || '').trim();
-  data[idx][h['Asthma']] = Boolean(p.asthma);
-  data[idx][h['Epilepsy']] = Boolean(p.epilepsy);
-  data[idx][h['Diabetes']] = Boolean(p.diabetes);
-  data[idx][h['Special Condition']] = String(p.specialCondition || '').trim();
-  data[idx][h['Emergency Contact Name']] = String(p.emergencyContactName || '').trim();
-  data[idx][h['Emergency Contact Relation']] = String(p.emergencyContactRelation || '').trim();
+  data[idx][h['Drug Allergy']] = limitedText_(p.drugAllergy,1000);
+  data[idx][h['Food Allergy']] = limitedText_(p.foodAllergy,1000);
+  data[idx][h['Chronic Diseases']] = limitedText_(p.chronicDiseases,1000);
+  data[idx][h['Asthma']] = strictBoolean_(p.asthma);
+  data[idx][h['Epilepsy']] = strictBoolean_(p.epilepsy);
+  data[idx][h['Diabetes']] = strictBoolean_(p.diabetes);
+  data[idx][h['Special Condition']] = limitedText_(p.specialCondition,1500);
+  data[idx][h['Emergency Contact Name']] = limitedText_(p.emergencyContactName,200);
+  data[idx][h['Emergency Contact Relation']] = limitedText_(p.emergencyContactRelation,100);
   data[idx][h['Emergency Contact Phone']] = phone;
   data[idx][h['Safety Updated At']] = now_();
   data[idx][h['Safety Updated By']] = s.staffId;
@@ -358,6 +361,9 @@ function updateStudentSafetyProfile_(p,s) {
   clearCache_(SHEETS.STUDENTS);
   audit_(s,'UPDATE_STUDENT_SAFETY','STUDENTS',id,'SUCCESS');
   return getStudentSafetyProfile_({studentId:id},s);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getStudentHistory_(p,s) {
@@ -1223,6 +1229,9 @@ function importStudents_(p,s) {
   const list = p.students;
   if (!Array.isArray(list) || !list.length) throw new Error('INVALID_INPUT');
 
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
   const sh = getSheet_(SHEETS.STUDENTS);
   ensureHeaders_(sh, HEADERS.STUDENTS);
   formatTextColumns_(sh, HEADERS.STUDENTS);
@@ -1283,6 +1292,9 @@ function importStudents_(p,s) {
   clearCache_(SHEETS.STUDENTS);
   audit_(s, 'IMPORT_STUDENTS', 'STUDENTS', 'Count:' + (added + updated), 'SUCCESS');
   return { success: true, data: { added: added, updated: updated, total: added + updated } };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function importItems_(p,s) {
@@ -1444,7 +1456,9 @@ function humanError_(code) {
     INVALID_DISPOSITION:'ค่า Disposition ไม่ถูกต้อง',
     INVALID_VITAL_SIGN:'ค่าชีพจรหรือสัญญาณชีพไม่ถูกต้อง',
     INVALID_INTERVENTION:'ค่า Intervention ไม่ถูกต้อง',
-    INVALID_PHONE:'รูปแบบหมายเลขโทรศัพท์ไม่ถูกต้อง'
+    INVALID_PHONE:'รูปแบบหมายเลขโทรศัพท์ไม่ถูกต้อง',
+    INVALID_BOOLEAN:'ค่าตัวเลือก Yes/No ไม่ถูกต้อง',
+    INPUT_TOO_LONG:'ข้อมูลที่กรอกยาวเกินขนาดที่ระบบกำหนด'
   };
   return map[code] || code;
 }
@@ -1678,6 +1692,20 @@ function isUsableLot_(status, expiryDate, currentQty, nowDate) {
   if (!exp) return false;
   const now = nowDate instanceof Date ? nowDate : new Date();
   return exp.getTime() >= now.getTime();
+}
+
+function strictBoolean_(value) {
+  if (value === true || value === false) return value;
+  const s = String(value === undefined || value === null ? '' : value).trim().toUpperCase();
+  if (['TRUE','1','YES','Y'].indexOf(s) >= 0) return true;
+  if (['FALSE','0','NO','N',''].indexOf(s) >= 0) return false;
+  throw new Error('INVALID_BOOLEAN');
+}
+
+function limitedText_(value,maxLength) {
+  const s = String(value === undefined || value === null ? '' : value).trim();
+  if (s.length > maxLength) throw new Error('INPUT_TOO_LONG');
+  return s;
 }
 
 function boolValue_(value) {
