@@ -8,6 +8,7 @@ import { StockPage } from './pages/StockPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { UsersPage } from './pages/UsersPage';
 import { ConfigPage } from './pages/ConfigPage';
+import { InventoryOperationsPage } from './features/inventory/InventoryOperationsPage';
 
 export const AppContent: React.FC = () => {
   const { session, loading } = useAuth();
@@ -67,6 +68,9 @@ export const AppContent: React.FC = () => {
         )}
         {currentTab === 'students' && <StudentsPage />}
         {currentTab === 'stock' && <StockPage />}
+        {currentTab === 'inventory-ops' && ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) && (
+          <InventoryOperationsPage />
+        )}
         {currentTab === 'users' && ['ADMIN', 'SUPER_ADMIN'].includes(role) && <UsersPage />}
         {currentTab === 'config' && role === 'SUPER_ADMIN' && <ConfigPage />}
       </main>
@@ -81,7 +85,7 @@ export const AppContent: React.FC = () => {
           marginTop: 'auto'
         }}
       >
-        School Nurse Management System · Bangkok Hospital Hatyai (BHH Infirmary) · Clinical V2 · P1
+        School Nurse Management System · Bangkok Hospital Hatyai (BHH Infirmary) · Clinical V2 · P3
       </footer>
     </div>
   );
