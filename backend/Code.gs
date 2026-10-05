@@ -7,7 +7,7 @@ const SHEETS = {
 const HEADERS = {
   CONFIG:['Config Key','Config Value','Data Type','Description','Active','Updated At','Updated By'],
   USERS:['Staff ID','Name','Role','Password Hash','Active','Last Login','Created At','Updated At'],
-  STUDENTS:['Student ID','First Name','Last Name','Full Name','Grade','Class','Gender','Status','Updated At'],
+  STUDENTS:['Student ID','First Name','Last Name','Full Name','Grade','Class','Gender','Status','Updated At','Drug Allergy','Food Allergy','Chronic Diseases','Asthma','Epilepsy','Diabetes','Special Condition','Emergency Contact Name','Emergency Contact Relation','Emergency Contact Phone','Safety Updated At','Safety Updated By'],
   ITEM_MASTER:['Item Code','Item Type','Generic Name','Trade Name','QTY','Unit','Minimum Stock','Maximum Stock','Unit Cost','Active/Inactive'],
   STOCK_LOT:['Stock Lot ID','Item Code','Lot Number','Expiry Date','Received Date','Received Qty','Current Qty','Unit Cost','Supplier','Status'],
   DISPENSE_HEADER:['Visit ID','Student ID','Visit Date','Visit Time','Symptoms','Other Symptom','Note','Staff ID','Status','Created At','Client Transaction ID','Temperature','BP Systolic','BP Diastolic','Pulse','Respiratory Rate','SpO2','Weight','Assessment','Interventions','Disposition','Outcome Note','Completed At'],
@@ -51,6 +51,8 @@ function route_(r) {
     case 'getSession': return {success:true,data:session};
     case 'searchStudents': return searchStudents_(r.payload || {});
     case 'getStudent': return getStudent_(r.payload || {});
+    case 'getStudentSafetyProfile': return getStudentSafetyProfile_(r.payload || {}, session);
+    case 'updateStudentSafetyProfile': return updateStudentSafetyProfile_(r.payload || {}, session);
     case 'getStudentHistory': return getStudentHistory_(r.payload || {}, session);
     case 'getItems': return getItems_(r.payload || {});
     case 'submitDispense': return submitVisit_(r.payload || {}, session);
@@ -227,6 +229,8 @@ function hash_(password,salt) {
 ========================= */
 
 function searchStudents_(p) {
+  const studentSheet = getSheet_(SHEETS.STUDENTS);
+  ensureHeaders_(studentSheet, HEADERS.STUDENTS);
   const q = String(p.q || '').trim().toLowerCase();
   if (!q) return {success:true,data:[]};
 
@@ -254,6 +258,8 @@ function searchStudents_(p) {
 }
 
 function getStudent_(p) {
+  const studentSheet = getSheet_(SHEETS.STUDENTS);
+  ensureHeaders_(studentSheet, HEADERS.STUDENTS);
   const id = String(p.studentId || '').trim();
   if (!id) throw new Error('INVALID_INPUT');
   const student = rows_(SHEETS.STUDENTS).find(function(x){
@@ -261,6 +267,104 @@ function getStudent_(p) {
   });
   if (!student) throw new Error('STUDENT_NOT_FOUND');
   return {success:true,data:student};
+}
+
+function getStudentSafetyProfile_(p,s) {
+  requireRole_(s,['NURSE','ADMIN','MANAGER','SUPER_ADMIN']);
+  const id = String(p.studentId || '').trim();
+  if (!id) throw new Error('INVALID_INPUT');
+
+  const sh = getSheet_(SHEETS.STUDENTS);
+  ensureHeaders_(sh, HEADERS.STUDENTS);
+  const student = rows_(SHEETS.STUDENTS).find(function(x){
+    return String(x['Student ID'] || '').trim() === id;
+  });
+  if (!student) throw new Error('STUDENT_NOT_FOUND');
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  cutoff.setHours(0,0,0,0);
+
+  const recentVisits = rows_(SHEETS.DISPENSE_HEADER).filter(function(v){
+    if (String(v['Student ID'] || '').trim() !== id) return false;
+    if (String(v.Status || '').trim().toUpperCase() === 'CANCELLED') return false;
+    const created = parseDate_(v['Created At']) || parseDate_(v['Visit Date']);
+    return created && !isNaN(created.getTime()) && created.getTime() >= cutoff.getTime();
+  }).sort(function(a,b){
+    return String(b['Created At'] || b['Visit Date']).localeCompare(String(a['Created At'] || a['Visit Date']));
+  });
+
+  return {
+    success:true,
+    data:{
+      studentId:id,
+      drugAllergy:String(student['Drug Allergy'] || ''),
+      foodAllergy:String(student['Food Allergy'] || ''),
+      chronicDiseases:String(student['Chronic Diseases'] || ''),
+      asthma:boolValue_(student.Asthma),
+      epilepsy:boolValue_(student.Epilepsy),
+      diabetes:boolValue_(student.Diabetes),
+      specialCondition:String(student['Special Condition'] || ''),
+      emergencyContactName:s.role === 'MANAGER' ? '' : String(student['Emergency Contact Name'] || ''),
+      emergencyContactRelation:s.role === 'MANAGER' ? '' : String(student['Emergency Contact Relation'] || ''),
+      emergencyContactPhone:s.role === 'MANAGER' ? '' : String(student['Emergency Contact Phone'] || ''),
+      updatedAt:String(student['Safety Updated At'] || ''),
+      updatedBy:String(student['Safety Updated By'] || ''),
+      recentVisit30dCount:recentVisits.length,
+      recentVisits:recentVisits.slice(0,5).map(function(v){
+        return {
+          visitId:String(v['Visit ID'] || ''),
+          visitDate:String(v['Visit Date'] || ''),
+          visitTime:String(v['Visit Time'] || ''),
+          symptoms:String(v.Symptoms || ''),
+          disposition:String(v.Disposition || '')
+        };
+      })
+    }
+  };
+}
+
+function updateStudentSafetyProfile_(p,s) {
+  requireRole_(s,['NURSE','ADMIN','SUPER_ADMIN']);
+  const id = String(p.studentId || '').trim();
+  if (!id) throw new Error('INVALID_INPUT');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+  const sh = getSheet_(SHEETS.STUDENTS);
+  ensureHeaders_(sh, HEADERS.STUDENTS);
+  const data = sh.getDataRange().getValues();
+  const h = headerMap_(data[0]);
+  const idx = data.findIndex(function(r,n){
+    return n > 0 && String(r[h['Student ID']] || '').trim() === id;
+  });
+  if (idx < 1) throw new Error('STUDENT_NOT_FOUND');
+
+  const phone = String(p.emergencyContactPhone || '').trim();
+  if (phone && !/^[0-9+()\-\s]{6,30}$/.test(phone)) throw new Error('INVALID_PHONE');
+
+  data[idx][h['Drug Allergy']] = limitedText_(p.drugAllergy,1000);
+  data[idx][h['Food Allergy']] = limitedText_(p.foodAllergy,1000);
+  data[idx][h['Chronic Diseases']] = limitedText_(p.chronicDiseases,1000);
+  data[idx][h['Asthma']] = strictBoolean_(p.asthma);
+  data[idx][h['Epilepsy']] = strictBoolean_(p.epilepsy);
+  data[idx][h['Diabetes']] = strictBoolean_(p.diabetes);
+  data[idx][h['Special Condition']] = limitedText_(p.specialCondition,1500);
+  data[idx][h['Emergency Contact Name']] = limitedText_(p.emergencyContactName,200);
+  data[idx][h['Emergency Contact Relation']] = limitedText_(p.emergencyContactRelation,100);
+  data[idx][h['Emergency Contact Phone']] = phone;
+  data[idx][h['Safety Updated At']] = now_();
+  data[idx][h['Safety Updated By']] = s.staffId;
+  data[idx][h['Updated At']] = now_();
+
+  sh.getRange(1,1,data.length,data[0].length).setValues(data);
+  clearCache_(SHEETS.STUDENTS);
+  audit_(s,'UPDATE_STUDENT_SAFETY','STUDENTS',id,'SUCCESS');
+  return getStudentSafetyProfile_({studentId:id},s);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getStudentHistory_(p,s) {
@@ -1126,7 +1230,11 @@ function importStudents_(p,s) {
   const list = p.students;
   if (!Array.isArray(list) || !list.length) throw new Error('INVALID_INPUT');
 
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
   const sh = getSheet_(SHEETS.STUDENTS);
+  ensureHeaders_(sh, HEADERS.STUDENTS);
   formatTextColumns_(sh, HEADERS.STUDENTS);
   const data = sh.getDataRange().getValues();
   const displayData = sh.getDataRange().getDisplayValues();
@@ -1166,7 +1274,20 @@ function importStudents_(p,s) {
       data[r][h['Updated At']] = t;
       updated++;
     } else {
-      newRows.push([id, fName, lName, fullName, grade, className, gender, status, t]);
+      const values = {
+        'Student ID':id,
+        'First Name':fName,
+        'Last Name':lName,
+        'Full Name':fullName,
+        'Grade':grade,
+        'Class':className,
+        'Gender':gender,
+        'Status':status,
+        'Updated At':t
+      };
+      newRows.push(data[0].map(function(header){
+        return Object.prototype.hasOwnProperty.call(values, String(header)) ? values[String(header)] : '';
+      }));
       rowMap[id] = data.length + newRows.length - 1;
       added++;
     }
@@ -1185,6 +1306,9 @@ function importStudents_(p,s) {
   clearCache_(SHEETS.STUDENTS);
   audit_(s, 'IMPORT_STUDENTS', 'STUDENTS', 'Count:' + (added + updated), 'SUCCESS');
   return { success: true, data: { added: added, updated: updated, total: added + updated } };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function importItems_(p,s) {
@@ -1345,7 +1469,10 @@ function humanError_(code) {
     DISPOSITION_REQUIRED:'กรุณาระบุผลลัพธ์หลังรับบริการ (Disposition)',
     INVALID_DISPOSITION:'ค่า Disposition ไม่ถูกต้อง',
     INVALID_VITAL_SIGN:'ค่าชีพจรหรือสัญญาณชีพไม่ถูกต้อง',
-    INVALID_INTERVENTION:'ค่า Intervention ไม่ถูกต้อง'
+    INVALID_INTERVENTION:'ค่า Intervention ไม่ถูกต้อง',
+    INVALID_PHONE:'รูปแบบหมายเลขโทรศัพท์ไม่ถูกต้อง',
+    INVALID_BOOLEAN:'ค่าตัวเลือก Yes/No ไม่ถูกต้อง',
+    INPUT_TOO_LONG:'ข้อมูลที่กรอกยาวเกินขนาดที่ระบบกำหนด'
   };
   return map[code] || code;
 }
@@ -1458,6 +1585,7 @@ function ensureHeaders_(sh,headers) {
   if (missingHeaders.length) {
     const startCol = sh.getLastColumn() + 1;
     sh.getRange(1,startCol,1,missingHeaders.length).setValues([missingHeaders]);
+    clearCache_(sh.getName());
   }
   formatTextColumns_(sh, headers);
 }
@@ -1579,6 +1707,26 @@ function isUsableLot_(status, expiryDate, currentQty, nowDate) {
   if (!exp) return false;
   const now = nowDate instanceof Date ? nowDate : new Date();
   return exp.getTime() >= now.getTime();
+}
+
+function strictBoolean_(value) {
+  if (value === true || value === false) return value;
+  const s = String(value === undefined || value === null ? '' : value).trim().toUpperCase();
+  if (['TRUE','1','YES','Y'].indexOf(s) >= 0) return true;
+  if (['FALSE','0','NO','N',''].indexOf(s) >= 0) return false;
+  throw new Error('INVALID_BOOLEAN');
+}
+
+function limitedText_(value,maxLength) {
+  const s = String(value === undefined || value === null ? '' : value).trim();
+  if (s.length > maxLength) throw new Error('INPUT_TOO_LONG');
+  return s;
+}
+
+function boolValue_(value) {
+  if (value === true || value === 1) return true;
+  const s = String(value || '').trim().toUpperCase();
+  return ['TRUE','1','YES','Y','ACTIVE'].indexOf(s) >= 0;
 }
 
 function validateVitals_(raw) {

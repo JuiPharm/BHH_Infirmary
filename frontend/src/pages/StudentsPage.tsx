@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Student, DispenseHeaderRecord } from '../types';
+import { Student, DispenseHeaderRecord, StudentSafetyProfile } from '../types';
+import { StudentSafetyCard } from '../components/StudentSafetyCard';
+import { StudentSafetyEditor } from '../components/StudentSafetyEditor';
 import { api } from '../api';
 import { parseStudentsInput, StudentImportRow } from '../utils/csvParser';
 import Swal from 'sweetalert2';
@@ -14,6 +16,9 @@ export const StudentsPage: React.FC = () => {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [history, setHistory] = useState<DispenseHeaderRecord[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [safetyProfile, setSafetyProfile] = useState<StudentSafetyProfile | null>(null);
+  const [loadingSafety, setLoadingSafety] = useState(false);
+  const [editingSafety, setEditingSafety] = useState(false);
 
   // Import Modal State
   const [showImportModal, setShowImportModal] = useState(false);
@@ -24,6 +29,7 @@ export const StudentsPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const canImport = isRole(['ADMIN', 'SUPER_ADMIN']);
+  const canEditSafety = isRole(['NURSE', 'ADMIN', 'SUPER_ADMIN']);
 
   const handleSearch = async () => {
     if (!query.trim() || !session?.token) return;
@@ -54,19 +60,24 @@ export const StudentsPage: React.FC = () => {
 
   const handleSelectStudent = async (stu: Student) => {
     setSelectedStudent(stu);
+    setSafetyProfile(null);
+    setEditingSafety(false);
     if (!session?.token) return;
     setLoadingHistory(true);
+    setLoadingSafety(true);
     try {
-      const res = await api<DispenseHeaderRecord[]>(
-        'getStudentHistory',
-        { studentId: stu.studentId },
-        session.token
-      );
-      setHistory(res || []);
+      const [visitHistory, safety] = await Promise.all([
+        api<DispenseHeaderRecord[]>('getStudentHistory', { studentId: stu.studentId }, session.token),
+        api<StudentSafetyProfile>('getStudentSafetyProfile', { studentId: stu.studentId }, session.token)
+      ]);
+      setHistory(visitHistory || []);
+      setSafetyProfile(safety);
     } catch (err: any) {
-      console.error('Failed to fetch history:', err);
+      console.error('Failed to fetch student profile:', err);
+      Swal.fire('โหลดข้อมูลไม่สำเร็จ', err.message || 'ไม่สามารถโหลดข้อมูลนักเรียนได้', 'warning');
     } finally {
       setLoadingHistory(false);
+      setLoadingSafety(false);
     }
   };
 
@@ -234,6 +245,24 @@ export const StudentsPage: React.FC = () => {
                   </div>
                 </div>
               </section>
+
+              {editingSafety && safetyProfile && session?.token ? (
+                <StudentSafetyEditor
+                  profile={safetyProfile}
+                  token={session.token}
+                  onSaved={(updated) => {
+                    setSafetyProfile(updated);
+                    setEditingSafety(false);
+                  }}
+                  onCancel={() => setEditingSafety(false)}
+                />
+              ) : (
+                <StudentSafetyCard
+                  profile={safetyProfile}
+                  loading={loadingSafety}
+                  onEdit={canEditSafety && safetyProfile ? () => setEditingSafety(true) : undefined}
+                />
+              )}
 
               {/* History Timeline */}
               <section className="card">

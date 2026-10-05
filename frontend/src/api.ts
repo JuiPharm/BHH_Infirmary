@@ -23,7 +23,10 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   TIMEOUT_ERROR: 'การเชื่อมต่อเซิร์ฟเวอร์ใช้เวลานานเกินไป กรุณากดลองใหม่อีกครั้ง',
   ROLE_ESCALATION_DENIED: 'คุณไม่มีสิทธิ์กำหนดหรือจัดการ Role ระดับนี้',
   CANNOT_DEACTIVATE_SELF: 'ไม่สามารถระงับบัญชีของตนเองได้',
-  TRANSACTION_ROLLBACK_FAILED: 'เกิดข้อผิดพลาดระหว่างย้อนคืนรายการ กรุณาหยุดทำรายการและติดต่อผู้ดูแลระบบ'
+  TRANSACTION_ROLLBACK_FAILED: 'เกิดข้อผิดพลาดระหว่างย้อนคืนรายการ กรุณาหยุดทำรายการและติดต่อผู้ดูแลระบบ',
+  INVALID_PHONE: 'รูปแบบหมายเลขโทรศัพท์ไม่ถูกต้อง',
+  INVALID_BOOLEAN: 'ค่าตัวเลือก Yes/No ไม่ถูกต้อง',
+  INPUT_TOO_LONG: 'ข้อมูลที่กรอกยาวเกินขนาดที่ระบบกำหนด'
 };
 
 export function getErrorMessage(codeOrMsg?: string): string {
