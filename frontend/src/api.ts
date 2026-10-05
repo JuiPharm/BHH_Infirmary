@@ -4,6 +4,36 @@ export const DEFAULT_GAS_URL =
   import.meta.env.VITE_GAS_URL ||
   'https://script.google.com/macros/s/AKfycbwC7zeux5tDqr_C-2AwtllHIFDXkXyvVQ0J7BoI-3u55xQ6vSslP5VxwZCxFKjZmB_h/exec';
 
+export const REQUIRED_API_VERSION = '2.3.0';
+
+export interface BackendHealth {
+  success: boolean;
+  service?: string;
+  apiVersion?: string;
+  timestamp?: string;
+}
+
+export async function getBackendHealth(
+  url: string = DEFAULT_GAS_URL,
+  timeoutMs: number = 8000
+): Promise<BackendHealth> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      mode: 'cors',
+      redirect: 'follow',
+      cache: 'no-store',
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return (await response.json()) as BackendHealth;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 const ERROR_MESSAGES_TH: Record<string, string> = {
   AUTH_REQUIRED: 'กรุณาเข้าสู่ระบบก่อนดำเนินการ',
   INVALID_SESSION: 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่',
