@@ -60,6 +60,7 @@ function route_(r) {
     case 'receiveStock': return receiveStock_(r.payload || {}, session);
     case 'adjustStock': return adjustStock_(r.payload || {}, session);
     case 'getStockTransactions': return getStockTransactions_(r.payload || {}, session);
+    case 'getStockReconciliation': return getStockReconciliation_(session);
     case 'getDashboardData': return getDashboardData_(r.payload || {}, session);
     case 'getDashboardSummary': return getDashboardSummary_(session);
     case 'getVisitTrend': return getVisitTrend_(r.payload || {}, session);
@@ -564,8 +565,12 @@ function receiveStock_(p,s) {
 
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
+  const sh = getSheet_(SHEETS.STOCK_LOT);
+  const txnSh = getSheet_(SHEETS.STOCK_TRANSACTION);
+  const lotLastRow = sh.getLastRow();
+  const txnLastRow = txnSh.getLastRow();
+
   try {
-    const sh = getSheet_(SHEETS.STOCK_LOT);
     const id = 'L'+Utilities.getUuid().replace(/-/g,'').slice(0,14);
     const t = now_();
     const unitCost = Number(p.unitCost)||0;
@@ -573,7 +578,7 @@ function receiveStock_(p,s) {
       id,itemCode,String(p.lotNumber || ''),expiry,t,qty,qty,
       unitCost,String(p.supplier || ''),'ACTIVE'
     ]);
-    getSheet_(SHEETS.STOCK_TRANSACTION).appendRow([
+    txnSh.appendRow([
       'ST'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
       'RECEIVE',
       id,
@@ -590,6 +595,16 @@ function receiveStock_(p,s) {
     syncItemQty_();
     audit_(s,'RECEIVE','STOCK',id,'SUCCESS');
     return {success:true,data:{stockLotId:id}};
+  } catch (err) {
+    try {
+      truncateAfterRow_(sh, lotLastRow);
+      truncateAfterRow_(txnSh, txnLastRow);
+      syncItemQty_();
+    } catch (rollbackErr) {
+      auditSystem_('ROLLBACK_FAILED','RECEIVE',String(err && err.message || err),'FAILED');
+      throw new Error('TRANSACTION_ROLLBACK_FAILED');
+    }
+    throw err;
   } finally {
     lock.releaseLock();
   }
@@ -606,9 +621,14 @@ function adjustStock_(p,s) {
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
 
+  let lotSnapshot = null;
+  let txnLastRow = null;
   try {
     const sh = getSheet_(SHEETS.STOCK_LOT);
+    const txnSh = getSheet_(SHEETS.STOCK_TRANSACTION);
     const data = sh.getDataRange().getValues();
+    lotSnapshot = data.map(function(r){return r.slice();});
+    txnLastRow = txnSh.getLastRow();
     const h = headerMap_(data[0]);
     const idx = data.findIndex(function(r,n){
       return n>0 && String(r[h['Stock Lot ID']] || '') === lotId;
@@ -622,7 +642,7 @@ function adjustStock_(p,s) {
     data[idx][h['Current Qty']] = after;
     sh.getRange(1,1,data.length,data[0].length).setValues(data);
 
-    getSheet_(SHEETS.STOCK_TRANSACTION).appendRow([
+    txnSh.appendRow([
       'ST'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
       delta > 0 ? 'ADJUST_IN' : 'ADJUST_OUT',
       reason,
@@ -640,6 +660,19 @@ function adjustStock_(p,s) {
     syncItemQty_();
     audit_(s,'ADJUST','STOCK',lotId,'SUCCESS');
     return {success:true,data:{before:before,after:after}};
+  } catch (err) {
+    try {
+      if (lotSnapshot) {
+        const shRb = getSheet_(SHEETS.STOCK_LOT);
+        shRb.getRange(1,1,lotSnapshot.length,lotSnapshot[0].length).setValues(lotSnapshot);
+      }
+      if (txnLastRow !== null) truncateAfterRow_(getSheet_(SHEETS.STOCK_TRANSACTION), txnLastRow);
+      syncItemQty_(lotSnapshot || undefined);
+    } catch (rollbackErr) {
+      auditSystem_('ROLLBACK_FAILED','ADJUST',String(err && err.message || err),'FAILED');
+      throw new Error('TRANSACTION_ROLLBACK_FAILED');
+    }
+    throw err;
   } finally {
     lock.releaseLock();
   }
@@ -682,6 +715,47 @@ function getStockTransactions_(p,s) {
   });
   if (p.itemCode) data = data.filter(function(x){return String(x['Item Code'])===String(p.itemCode);});
   return {success:true,data:data.slice(0,Math.min(Number(p.limit)||200,500))};
+}
+
+function getStockReconciliation_(s) {
+  if (!['ADMIN','MANAGER','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
+
+  const master = rows_(SHEETS.ITEM_MASTER).filter(function(x){return isActive_(x['Active/Inactive']);});
+  const lots = rows_(SHEETS.STOCK_LOT);
+  const usableByItem = {};
+
+  lots.forEach(function(lot){
+    const itemCode = String(lot['Item Code'] || '').trim();
+    const qty = Number(lot['Current Qty']) || 0;
+    const expiry = parseDate_(lot['Expiry Date']);
+    if (itemCode && isUsableLot_(lot.Status, expiry, qty, new Date())) {
+      usableByItem[itemCode] = (usableByItem[itemCode] || 0) + qty;
+    }
+  });
+
+  const rows = master.map(function(item){
+    const itemCode = String(item['Item Code'] || '').trim();
+    const aggregateQty = Number(item.QTY) || 0;
+    const usableQty = usableByItem[itemCode] || 0;
+    return {
+      itemCode:itemCode,
+      aggregateQty:aggregateQty,
+      usableLotQty:usableQty,
+      variance:aggregateQty-usableQty,
+      balanced:aggregateQty===usableQty
+    };
+  });
+
+  const mismatches = rows.filter(function(x){return !x.balanced;});
+  return {
+    success:true,
+    data:{
+      checked:rows.length,
+      balanced:mismatches.length===0,
+      mismatchCount:mismatches.length,
+      mismatches:mismatches
+    }
+  };
 }
 
 /* =========================
@@ -931,6 +1005,9 @@ function updateUser_(p,s) {
 
   const currentRole = String(data[idx][h['Role']] || '').trim().toUpperCase();
   assertCanManageUser_(s, staffId, currentRole);
+  if (p.active === false && staffId === String(s.staffId || '').trim()) {
+    throw new Error('CANNOT_DEACTIVATE_SELF');
+  }
 
   if (p.name !== undefined) data[idx][h['Name']] = String(p.name || '').trim();
   if (p.role !== undefined) {
