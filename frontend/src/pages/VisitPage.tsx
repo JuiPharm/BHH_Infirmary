@@ -3,6 +3,7 @@ import Swal from 'sweetalert2';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { normalizeItemType } from '../domain/stock';
+import { hasVisitClinicalContent } from '../domain/visit';
 import { CartItem, Item, Student, VisitDisposition, VisitVitals } from '../types';
 
 const COMMON_SYMPTOMS = [
@@ -215,8 +216,16 @@ export const VisitPage: React.FC = () => {
       return;
     }
 
-    if (!selectedSymptoms.length && !otherSymptom.trim() && !note.trim() && !assessment.trim()) {
-      Swal.fire('ข้อมูล Clinical ยังไม่ครบ', 'กรุณาระบุอาการ บันทึก หรือผลการประเมินอย่างน้อย 1 รายการ', 'warning');
+    const vitals = buildVitals();
+    if (!hasVisitClinicalContent({
+      symptoms: selectedSymptoms,
+      otherSymptom,
+      note,
+      assessment,
+      interventions,
+      vitals
+    })) {
+      Swal.fire('ข้อมูล Clinical ยังไม่ครบ', 'กรุณาระบุอาการ สัญญาณชีพ การดูแล บันทึก หรือผลการประเมินอย่างน้อย 1 รายการ', 'warning');
       return;
     }
 
@@ -265,7 +274,7 @@ export const VisitPage: React.FC = () => {
           otherSymptom: otherSymptom.trim(),
           note: note.trim(),
           assessment: assessment.trim(),
-          vitals: buildVitals(),
+          vitals,
           interventions,
           disposition,
           outcomeNote: outcomeNote.trim(),
