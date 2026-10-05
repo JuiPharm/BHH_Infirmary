@@ -889,6 +889,11 @@ function updateStockLotStatus_(p,s) {
       throw new Error('LOT_EXPIRED_CANNOT_ACTIVATE');
     }
     const qty = Number(data[idx][h['Current Qty']]) || 0;
+    if (status === 'INACTIVE' && qty > 0) throw new Error('LOT_WITH_QTY_CANNOT_INACTIVATE');
+    if (status === 'EXPIRED' && expiry && expiry.getTime() >= new Date().getTime()) {
+      throw new Error('LOT_NOT_YET_EXPIRED');
+    }
+    if (beforeStatus === 'DAMAGED' && status === 'ACTIVE') throw new Error('INVALID_LOT_STATUS_TRANSITION');
     const itemCode = String(data[idx][h['Item Code']] || '');
     const unitCost = Number(data[idx][h['Unit Cost']]) || 0;
 
@@ -1053,7 +1058,8 @@ function submitStockCount_(p,s) {
 function getStockCounts_(p,s) {
   requireRole_(s,['ADMIN','MANAGER','SUPER_ADMIN']);
   const limit = Math.min(Math.max(Number(p.limit)||200,1),500);
-  ensureSheet_(SHEETS.STOCK_COUNT, HEADERS.STOCK_COUNT);
+  const existingSheet = getSpreadsheet_().getSheetByName(SHEETS.STOCK_COUNT);
+  if (!existingSheet) return {success:true,data:[]};
   let data = rows_(SHEETS.STOCK_COUNT).sort(function(a,b){
     return String(b['Created At'] || '').localeCompare(String(a['Created At'] || ''));
   });
@@ -1729,6 +1735,9 @@ function humanError_(code) {
     INVALID_LOT_STATUS:'สถานะ Stock Lot ไม่ถูกต้อง',
     LOT_EXPIRED_CANNOT_ACTIVATE:'ไม่สามารถเปลี่ยน Lot ที่หมดอายุแล้วกลับเป็น ACTIVE ได้',
     INVALID_EXPIRY_DATE:'วันหมดอายุไม่ถูกต้องหรือหมดอายุแล้ว',
+    LOT_WITH_QTY_CANNOT_INACTIVATE:'ไม่สามารถตั้ง Lot เป็น INACTIVE ขณะที่ยังมีคงเหลือ ต้องจัดการยอดให้เป็น 0 ก่อน',
+    LOT_NOT_YET_EXPIRED:'ไม่สามารถตั้งสถานะ EXPIRED ก่อนวันหมดอายุจริงได้',
+    INVALID_LOT_STATUS_TRANSITION:'ไม่อนุญาตให้เปลี่ยนสถานะ Lot ตามเส้นทางนี้',
     LOT_STATUS_UNCHANGED:'Stock Lot อยู่ในสถานะนี้อยู่แล้ว',
     INVALID_COUNT_QTY:'จำนวนตรวจนับต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป',
     DUPLICATE_COUNT_LINE:'มี Stock Lot ซ้ำในรายการตรวจนับ',
