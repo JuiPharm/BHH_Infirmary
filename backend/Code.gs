@@ -882,6 +882,10 @@ function updateStockLotStatus_(p,s) {
 
     const beforeStatus = String(data[idx][h['Status']] || 'ACTIVE').trim().toUpperCase();
     if (beforeStatus === status) throw new Error('LOT_STATUS_UNCHANGED');
+    const expiry = endOfDay_(parseDate_(data[idx][h['Expiry Date']]));
+    if (status === 'ACTIVE' && (!expiry || expiry.getTime() < new Date().getTime())) {
+      throw new Error('LOT_EXPIRED_CANNOT_ACTIVATE');
+    }
     const qty = Number(data[idx][h['Current Qty']]) || 0;
     const itemCode = String(data[idx][h['Item Code']] || '');
     const unitCost = Number(data[idx][h['Unit Cost']]) || 0;
@@ -938,7 +942,7 @@ function submitStockCount_(p,s) {
   let txnLastRow = null;
   try {
     const lotSh = getSheet_(SHEETS.STOCK_LOT);
-    const countSh = getSheet_(SHEETS.STOCK_COUNT);
+    const countSh = ensureSheet_(SHEETS.STOCK_COUNT, HEADERS.STOCK_COUNT);
     const txnSh = getSheet_(SHEETS.STOCK_TRANSACTION);
     ensureHeaders_(countSh, HEADERS.STOCK_COUNT);
 
@@ -1047,6 +1051,7 @@ function submitStockCount_(p,s) {
 function getStockCounts_(p,s) {
   requireRole_(s,['ADMIN','MANAGER','SUPER_ADMIN']);
   const limit = Math.min(Math.max(Number(p.limit)||200,1),500);
+  ensureSheet_(SHEETS.STOCK_COUNT, HEADERS.STOCK_COUNT);
   let data = rows_(SHEETS.STOCK_COUNT).sort(function(a,b){
     return String(b['Created At'] || '').localeCompare(String(a['Created At'] || ''));
   });
@@ -1720,6 +1725,7 @@ function humanError_(code) {
     INVALID_BOOLEAN:'ค่าตัวเลือก Yes/No ไม่ถูกต้อง',
     INPUT_TOO_LONG:'ข้อมูลที่กรอกยาวเกินขนาดที่ระบบกำหนด',
     INVALID_LOT_STATUS:'สถานะ Stock Lot ไม่ถูกต้อง',
+    LOT_EXPIRED_CANNOT_ACTIVATE:'ไม่สามารถเปลี่ยน Lot ที่หมดอายุแล้วกลับเป็น ACTIVE ได้',
     LOT_STATUS_UNCHANGED:'Stock Lot อยู่ในสถานะนี้อยู่แล้ว',
     INVALID_COUNT_QTY:'จำนวนตรวจนับต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป',
     DUPLICATE_COUNT_LINE:'มี Stock Lot ซ้ำในรายการตรวจนับ',
@@ -1758,6 +1764,17 @@ function getSpreadsheet_() {
     _ssInstance = SpreadsheetApp.getActiveSpreadsheet();
   }
   return _ssInstance;
+}
+
+function ensureSheet_(name,headers) {
+  const ss = getSpreadsheet_();
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    _sheetCache[name] = sh;
+  }
+  ensureHeaders_(sh,headers);
+  return sh;
 }
 
 function getSheet_(name) {
