@@ -244,15 +244,13 @@ export const VisitPage: React.FC = () => {
     const dispositionLabel = DISPOSITIONS.find(([code]) => code === disposition)?.[1] || disposition;
     const confirm = await Swal.fire({
       title: 'ยืนยันบันทึก Visit',
-      html: `
-        <div style="text-align:left">
-          <div><b>นักเรียน:</b> ${selectedStudent.fullName} (${selectedStudent.studentId})</div>
-          <div><b>อาการ:</b> ${selectedSymptoms.join(', ') || otherSymptom || '-'}</div>
-          <div><b>Assessment:</b> ${assessment || '-'}</div>
-          <div><b>Disposition:</b> ${dispositionLabel}</div>
-          <div><b>ยา/เวชภัณฑ์:</b> ${cart.length ? cart.length + ' รายการ' : 'ไม่มีการจ่าย'}</div>
-        </div>
-      `,
+      text: [
+        `นักเรียน: ${selectedStudent.fullName} (${selectedStudent.studentId})`,
+        `อาการ: ${selectedSymptoms.join(', ') || otherSymptom || '-'}`,
+        `Assessment: ${assessment || '-'}`,
+        `Disposition: ${dispositionLabel}`,
+        `ยา/เวชภัณฑ์: ${cart.length ? cart.length + ' รายการ' : 'ไม่มีการจ่าย'}`
+      ].join('\n'),
       icon: 'question',
       showCancelButton: true,
       confirmButtonText: 'บันทึก Visit',
