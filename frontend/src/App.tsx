@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from './context/AuthContext';
 import { Header } from './components/Header';
 import { LoginPage } from './pages/LoginPage';
-import { DispensePage } from './pages/DispensePage';
+import { VisitPage } from './pages/VisitPage';
 import { StudentsPage } from './pages/StudentsPage';
 import { StockPage } from './pages/StockPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -11,7 +11,7 @@ import { ConfigPage } from './pages/ConfigPage';
 
 export const AppContent: React.FC = () => {
   const { session, loading } = useAuth();
-  const [currentTab, setCurrentTab] = useState<string>('dispense');
+  const [currentTab, setCurrentTab] = useState<string>('visit');
 
   // Set default landing tab based on role
   useEffect(() => {
@@ -19,7 +19,7 @@ export const AppContent: React.FC = () => {
       if (session.role === 'MANAGER') {
         setCurrentTab('dashboard');
       } else {
-        setCurrentTab('dispense');
+        setCurrentTab('visit');
       }
     }
   }, [session?.role]);
@@ -59,8 +59,8 @@ export const AppContent: React.FC = () => {
       <Header currentTab={currentTab} setTab={setCurrentTab} />
 
       <main>
-        {currentTab === 'dispense' && ['NURSE', 'ADMIN', 'SUPER_ADMIN'].includes(role) && (
-          <DispensePage />
+        {currentTab === 'visit' && ['NURSE', 'ADMIN', 'SUPER_ADMIN'].includes(role) && (
+          <VisitPage />
         )}
         {currentTab === 'dashboard' && ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) && (
           <DashboardPage />
@@ -81,7 +81,7 @@ export const AppContent: React.FC = () => {
           marginTop: 'auto'
         }}
       >
-        School Nurse Management System · Bangkok Hospital Hatyai (BHH Infirmary) · Production V1.0
+        School Nurse Management System · Bangkok Hospital Hatyai (BHH Infirmary) · Clinical V2 · P1
       </footer>
     </div>
   );
