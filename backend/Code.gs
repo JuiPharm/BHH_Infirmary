@@ -966,8 +966,10 @@ function submitStockCount_(p,s) {
     const seen = {};
     const countId = 'SC'+Utilities.getUuid().replace(/-/g,'').slice(0,14);
     const t = now_();
+    const countHeader = countSh.getRange(1,1,1,countSh.getLastColumn()).getValues()[0].map(String);
     const countRows = [];
     const txnRows = [];
+    let totalAbsoluteVariance = 0;
 
     lines.forEach(function(line) {
       const lotId = String(line.stockLotId || '').trim();
@@ -984,19 +986,23 @@ function submitStockCount_(p,s) {
       const itemCode = String(lotData[idx][h['Item Code']] || '');
       const unitCost = Number(lotData[idx][h['Unit Cost']]) || 0;
 
-      countRows.push([
-        countId,
-        'SCL'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
-        Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd'),
-        lotId,
-        itemCode,
-        systemQty,
-        countedQty,
-        variance,
-        reason,
-        s.staffId,
-        t
-      ]);
+      const countValues = {
+        'Count ID':countId,
+        'Count Line ID':'SCL'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
+        'Count Date':Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd'),
+        'Stock Lot ID':lotId,
+        'Item Code':itemCode,
+        'System Qty':systemQty,
+        'Counted Qty':countedQty,
+        'Variance':variance,
+        'Reason':reason,
+        'Staff ID':s.staffId,
+        'Created At':t
+      };
+      countRows.push(countHeader.map(function(name){
+        return Object.prototype.hasOwnProperty.call(countValues,name) ? countValues[name] : '';
+      }));
+      totalAbsoluteVariance += Math.abs(variance);
 
       if (variance !== 0) {
         lotData[idx][h['Current Qty']] = countedQty;
@@ -1033,7 +1039,7 @@ function submitStockCount_(p,s) {
         countId:countId,
         countedLines:countRows.length,
         adjustedLines:txnRows.length,
-        totalAbsoluteVariance:countRows.reduce(function(sum,r){return sum+Math.abs(Number(r[7])||0);},0)
+        totalAbsoluteVariance:totalAbsoluteVariance
       }
     };
   } catch (err) {
