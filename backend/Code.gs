@@ -323,11 +323,18 @@ function submitVisit_(p,s) {
   const items = Array.isArray(p.items) ? p.items : [];
   const symptoms = Array.isArray(p.symptoms) ? p.symptoms : [];
   const assessment = String(p.assessment || '').trim();
-  const interventions = Array.isArray(p.interventions) ? p.interventions : [];
+  const allowedInterventions = ['REST','WOUND_CARE','COLD_COMPRESS','WARM_COMPRESS','ORAL_HYDRATION','FIRST_AID','MEDICATION','MEDICAL_SUPPLY','PARENT_CONTACTED','REFERRED'];
+  const interventions = (Array.isArray(p.interventions) ? p.interventions : []).map(function(x){
+    return String(x || '').trim().toUpperCase();
+  }).filter(function(x){ return allowedInterventions.indexOf(x) >= 0; });
   const disposition = String(p.disposition || '').trim().toUpperCase();
+  const rawVitals = p.vitals || {};
+  const hasVitals = Object.keys(rawVitals).some(function(k){
+    return rawVitals[k] !== undefined && rawVitals[k] !== null && String(rawVitals[k]).trim() !== '';
+  });
 
   if (!studentId || !clientTx) throw new Error('INVALID_INPUT');
-  if (!symptoms.length && !String(p.otherSymptom || '').trim() && !String(p.note || '').trim() && !assessment) {
+  if (!symptoms.length && !String(p.otherSymptom || '').trim() && !String(p.note || '').trim() && !assessment && !interventions.length && !hasVitals) {
     throw new Error('VISIT_CLINICAL_DATA_REQUIRED');
   }
   if (!disposition) throw new Error('DISPOSITION_REQUIRED');
@@ -472,37 +479,43 @@ function submitVisit_(p,s) {
       });
     });
 
-    const vitals = validateVitals_(p.vitals || {});
+    const vitals = validateVitals_(rawVitals);
     const completedAt = t;
-    const hrow = [
-      visitId,
-      studentId,
-      Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd'),
-      Utilities.formatDate(new Date(),getTimeZone_(),'HH:mm:ss'),
-      JSON.stringify(symptoms),
-      String(p.otherSymptom || ''),
-      String(p.note || ''),
-      s.staffId,
-      'COMPLETED',
-      t,
-      clientTx,
-      normalizeOptionalNumber_(vitals.temperature),
-      normalizeOptionalInteger_(vitals.bpSystolic),
-      normalizeOptionalInteger_(vitals.bpDiastolic),
-      normalizeOptionalInteger_(vitals.pulse),
-      normalizeOptionalInteger_(vitals.respiratoryRate),
-      normalizeOptionalInteger_(vitals.spo2),
-      normalizeOptionalNumber_(vitals.weight),
-      assessment,
-      JSON.stringify(interventions),
-      disposition,
-      String(p.outcomeNote || ''),
-      completedAt
-    ];
+    const visitValues = {
+      'Visit ID':visitId,
+      'Student ID':studentId,
+      'Visit Date':Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd'),
+      'Visit Time':Utilities.formatDate(new Date(),getTimeZone_(),'HH:mm:ss'),
+      'Symptoms':JSON.stringify(symptoms),
+      'Other Symptom':String(p.otherSymptom || ''),
+      'Note':String(p.note || ''),
+      'Staff ID':s.staffId,
+      'Status':'COMPLETED',
+      'Created At':t,
+      'Client Transaction ID':clientTx,
+      'Temperature':vitals.temperature,
+      'BP Systolic':vitals.bpSystolic,
+      'BP Diastolic':vitals.bpDiastolic,
+      'Pulse':vitals.pulse,
+      'Respiratory Rate':vitals.respiratoryRate,
+      'SpO2':vitals.spo2,
+      'Weight':vitals.weight,
+      'Assessment':assessment,
+      'Interventions':JSON.stringify(interventions),
+      'Disposition':disposition,
+      'Outcome Note':String(p.outcomeNote || ''),
+      'Completed At':completedAt
+    };
+    const currentHeader = header.getRange(1,1,1,header.getLastColumn()).getValues()[0].map(String);
+    const hrow = currentHeader.map(function(name){
+      return Object.prototype.hasOwnProperty.call(visitValues,name) ? visitValues[name] : '';
+    });
 
     // Write stock first, then records. Rollback is attempted on any error.
-    lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
-    stockWritten = true;
+    if (items.length) {
+      lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
+      stockWritten = true;
+    }
     header.getRange(header.getLastRow()+1,1,1,hrow.length).setValues([hrow]);
     if (drows.length) {
       detail.getRange(detail.getLastRow()+1,1,drows.length,drows[0].length).setValues(drows);
