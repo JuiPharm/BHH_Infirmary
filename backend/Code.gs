@@ -41,8 +41,8 @@ function out_(obj) {
 function route_(r) {
   r = r || {};
   const action = String(r.action || '');
-  if (action === 'setupSystem') return setupSystem();
-  if (action === 'seedUser') return seedUser();
+  if (action === 'setupSystem') return setupSystemApi_(r);
+  if (action === 'seedUser') return seedUserApi_(r);
   if (action === 'login') return login_(r.payload || {});
   if (action === 'logout') return logout_(r.token);
   const session = requireSession_(r.token);
@@ -60,6 +60,7 @@ function route_(r) {
     case 'receiveStock': return receiveStock_(r.payload || {}, session);
     case 'adjustStock': return adjustStock_(r.payload || {}, session);
     case 'getStockTransactions': return getStockTransactions_(r.payload || {}, session);
+    case 'getStockReconciliation': return getStockReconciliation_(session);
     case 'getDashboardData': return getDashboardData_(r.payload || {}, session);
     case 'getDashboardSummary': return getDashboardSummary_(session);
     case 'getVisitTrend': return getVisitTrend_(r.payload || {}, session);
@@ -83,6 +84,11 @@ function route_(r) {
 /* =========================
    SETUP / CONFIG
 ========================= */
+
+function setupSystemApi_(request) {
+  requireBootstrapAccess_(request);
+  return setupSystem();
+}
 
 function setupSystem() {
   const ss = getSpreadsheet_();
@@ -122,6 +128,11 @@ function setDefaultConfigs_() {
   INITIAL_ADMIN_PASSWORD
   INITIAL_ADMIN_ROLE   (default ADMIN)
 */
+function seedUserApi_(request) {
+  requireBootstrapAccess_(request);
+  return seedUser();
+}
+
 function seedUser() {
   const props = PropertiesService.getScriptProperties();
   const staffId = String(props.getProperty('INITIAL_ADMIN_ID') || '').trim();
@@ -311,6 +322,13 @@ function submitDispense_(p,s) {
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
 
+  // Rollback state must live outside the try block so catch can restore it.
+  let lotSnapshot = null;
+  let headerLastRow = null;
+  let detailLastRow = null;
+  let txnLastRow = null;
+  let stockWritten = false;
+
   try {
     const ss = getSpreadsheet_();
     const header = getSheet_(SHEETS.DISPENSE_HEADER);
@@ -354,7 +372,7 @@ function submitDispense_(p,s) {
 
         const current = Number(r[lh['Current Qty']]) || 0;
         const expiry = parseDate_(r[lh['Expiry Date']]);
-        if (current > 0 && expiry && !isNaN(expiry.getTime()) && expiry >= new Date()) {
+        if (isUsableLot_(String(r[lh['Status']] || ''), expiry, current, new Date())) {
           eligible.push({
             row:i,
             lotId:String(r[lh['Stock Lot ID']] || ''),
@@ -387,7 +405,10 @@ function submitDispense_(p,s) {
       plans.push({raw:raw,master:master,allocations:allocations});
     });
 
-    const lotSnapshot = lotData.map(function(r){return r.slice();});
+    lotSnapshot = lotData.map(function(r){return r.slice();});
+    headerLastRow = header.getLastRow();
+    detailLastRow = detail.getLastRow();
+    txnLastRow = txn.getLastRow();
     const visitId = 'V'+Utilities.getUuid().replace(/-/g,'').slice(0,16);
     const t = now_();
     const drows = [];
@@ -450,6 +471,7 @@ function submitDispense_(p,s) {
 
     // Write stock first, then records. Rollback is attempted on any error.
     lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
+    stockWritten = true;
     header.getRange(header.getLastRow()+1,1,1,hrow.length).setValues([hrow]);
     if (drows.length) {
       detail.getRange(detail.getLastRow()+1,1,drows.length,drows[0].length).setValues(drows);
@@ -467,8 +489,22 @@ function submitDispense_(p,s) {
 
     return {success:true,data:{visitId,items:resultItems}};
   } catch (err) {
-    // The entire operation is protected by LockService. Any exception occurs before
-    // returning success; no partial business transaction is intentionally reported.
+    // Google Sheets has no native multi-sheet transaction. If any write after stock
+    // mutation fails, restore the lot snapshot and remove rows appended by this request.
+    try {
+      if (stockWritten && lotSnapshot && headerLastRow !== null && detailLastRow !== null && txnLastRow !== null) {
+        const lotSheetRb = getSheet_(SHEETS.STOCK_LOT);
+        lotSheetRb.getRange(1,1,lotSnapshot.length,lotSnapshot[0].length).setValues(lotSnapshot);
+        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_HEADER), headerLastRow);
+        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_ITEMS), detailLastRow);
+        truncateAfterRow_(getSheet_(SHEETS.STOCK_TRANSACTION), txnLastRow);
+        syncItemQty_(lotSnapshot);
+        invalidateStockCache_();
+      }
+    } catch (rollbackErr) {
+      auditSystem_('ROLLBACK_FAILED','DISPENSE',String(err && err.message || err),'FAILED');
+      throw new Error('TRANSACTION_ROLLBACK_FAILED');
+    }
     throw err;
   } finally {
     lock.releaseLock();
@@ -537,17 +573,46 @@ function receiveStock_(p,s) {
 
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
+  const sh = getSheet_(SHEETS.STOCK_LOT);
+  const txnSh = getSheet_(SHEETS.STOCK_TRANSACTION);
+  const lotLastRow = sh.getLastRow();
+  const txnLastRow = txnSh.getLastRow();
+
   try {
-    const sh = getSheet_(SHEETS.STOCK_LOT);
     const id = 'L'+Utilities.getUuid().replace(/-/g,'').slice(0,14);
     const t = now_();
+    const unitCost = Number(p.unitCost)||0;
     sh.appendRow([
       id,itemCode,String(p.lotNumber || ''),expiry,t,qty,qty,
-      Number(p.unitCost)||0,String(p.supplier || ''),'ACTIVE'
+      unitCost,String(p.supplier || ''),'ACTIVE'
+    ]);
+    txnSh.appendRow([
+      'ST'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
+      'RECEIVE',
+      id,
+      itemCode,
+      id,
+      qty,
+      0,
+      qty,
+      unitCost,
+      'Receive stock',
+      s.staffId,
+      t
     ]);
     syncItemQty_();
     audit_(s,'RECEIVE','STOCK',id,'SUCCESS');
     return {success:true,data:{stockLotId:id}};
+  } catch (err) {
+    try {
+      truncateAfterRow_(sh, lotLastRow);
+      truncateAfterRow_(txnSh, txnLastRow);
+      syncItemQty_();
+    } catch (rollbackErr) {
+      auditSystem_('ROLLBACK_FAILED','RECEIVE',String(err && err.message || err),'FAILED');
+      throw new Error('TRANSACTION_ROLLBACK_FAILED');
+    }
+    throw err;
   } finally {
     lock.releaseLock();
   }
@@ -564,9 +629,14 @@ function adjustStock_(p,s) {
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
 
+  let lotSnapshot = null;
+  let txnLastRow = null;
   try {
     const sh = getSheet_(SHEETS.STOCK_LOT);
+    const txnSh = getSheet_(SHEETS.STOCK_TRANSACTION);
     const data = sh.getDataRange().getValues();
+    lotSnapshot = data.map(function(r){return r.slice();});
+    txnLastRow = txnSh.getLastRow();
     const h = headerMap_(data[0]);
     const idx = data.findIndex(function(r,n){
       return n>0 && String(r[h['Stock Lot ID']] || '') === lotId;
@@ -580,9 +650,9 @@ function adjustStock_(p,s) {
     data[idx][h['Current Qty']] = after;
     sh.getRange(1,1,data.length,data[0].length).setValues(data);
 
-    getSheet_(SHEETS.STOCK_TRANSACTION).appendRow([
+    txnSh.appendRow([
       'ST'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
-      'ADJUST',
+      delta > 0 ? 'ADJUST_IN' : 'ADJUST_OUT',
       reason,
       String(p.itemCode || data[idx][h['Item Code']] || ''),
       lotId,
@@ -598,6 +668,19 @@ function adjustStock_(p,s) {
     syncItemQty_();
     audit_(s,'ADJUST','STOCK',lotId,'SUCCESS');
     return {success:true,data:{before:before,after:after}};
+  } catch (err) {
+    try {
+      if (lotSnapshot) {
+        const shRb = getSheet_(SHEETS.STOCK_LOT);
+        shRb.getRange(1,1,lotSnapshot.length,lotSnapshot[0].length).setValues(lotSnapshot);
+      }
+      if (txnLastRow !== null) truncateAfterRow_(getSheet_(SHEETS.STOCK_TRANSACTION), txnLastRow);
+      syncItemQty_(lotSnapshot || undefined);
+    } catch (rollbackErr) {
+      auditSystem_('ROLLBACK_FAILED','ADJUST',String(err && err.message || err),'FAILED');
+      throw new Error('TRANSACTION_ROLLBACK_FAILED');
+    }
+    throw err;
   } finally {
     lock.releaseLock();
   }
@@ -617,8 +700,11 @@ function syncItemQty_(optionalLotData) {
   for (let i=1;i<lotData.length;i++) {
     const item = String(lotData[i][lh['Item Code']] || '');
     const qty = Number(lotData[i][lh['Current Qty']]) || 0;
-    const status = String(lotData[i][lh['Status']] || '').toUpperCase();
-    if (item && status !== 'INACTIVE') totals[item] = (totals[item] || 0) + qty;
+    const status = String(lotData[i][lh['Status']] || '');
+    const expiry = parseDate_(lotData[i][lh['Expiry Date']]);
+    if (item && isUsableLot_(status, expiry, qty, new Date())) {
+      totals[item] = (totals[item] || 0) + qty;
+    }
   }
 
   for (let i=1;i<masterData.length;i++) {
@@ -637,6 +723,47 @@ function getStockTransactions_(p,s) {
   });
   if (p.itemCode) data = data.filter(function(x){return String(x['Item Code'])===String(p.itemCode);});
   return {success:true,data:data.slice(0,Math.min(Number(p.limit)||200,500))};
+}
+
+function getStockReconciliation_(s) {
+  if (!['ADMIN','MANAGER','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
+
+  const master = rows_(SHEETS.ITEM_MASTER).filter(function(x){return isActive_(x['Active/Inactive']);});
+  const lots = rows_(SHEETS.STOCK_LOT);
+  const usableByItem = {};
+
+  lots.forEach(function(lot){
+    const itemCode = String(lot['Item Code'] || '').trim();
+    const qty = Number(lot['Current Qty']) || 0;
+    const expiry = parseDate_(lot['Expiry Date']);
+    if (itemCode && isUsableLot_(lot.Status, expiry, qty, new Date())) {
+      usableByItem[itemCode] = (usableByItem[itemCode] || 0) + qty;
+    }
+  });
+
+  const rows = master.map(function(item){
+    const itemCode = String(item['Item Code'] || '').trim();
+    const aggregateQty = Number(item.QTY) || 0;
+    const usableQty = usableByItem[itemCode] || 0;
+    return {
+      itemCode:itemCode,
+      aggregateQty:aggregateQty,
+      usableLotQty:usableQty,
+      variance:aggregateQty-usableQty,
+      balanced:aggregateQty===usableQty
+    };
+  });
+
+  const mismatches = rows.filter(function(x){return !x.balanced;});
+  return {
+    success:true,
+    data:{
+      checked:rows.length,
+      balanced:mismatches.length===0,
+      mismatchCount:mismatches.length,
+      mismatches:mismatches
+    }
+  };
 }
 
 /* =========================
@@ -853,6 +980,7 @@ function createUser_(p,s) {
 
   if (!staffId || !name || !password) throw new Error('INVALID_INPUT');
   validateRole_(role);
+  assertCanAssignRole_(s, role);
 
   if (rows_(SHEETS.USERS).some(function(x){return String(x['Staff ID']).trim()===staffId;})) {
     throw new Error('USER_ALREADY_EXISTS');
@@ -883,10 +1011,17 @@ function updateUser_(p,s) {
   });
   if (idx<1) throw new Error('USER_NOT_FOUND');
 
+  const currentRole = String(data[idx][h['Role']] || '').trim().toUpperCase();
+  assertCanManageUser_(s, staffId, currentRole);
+  if (p.active === false && staffId === String(s.staffId || '').trim()) {
+    throw new Error('CANNOT_DEACTIVATE_SELF');
+  }
+
   if (p.name !== undefined) data[idx][h['Name']] = String(p.name || '').trim();
   if (p.role !== undefined) {
     const role = String(p.role || '').trim().toUpperCase();
     validateRole_(role);
+    assertCanAssignRole_(s, role);
     data[idx][h['Role']] = role;
   }
   if (p.active !== undefined) data[idx][h['Active']] = Boolean(p.active);
@@ -900,6 +1035,9 @@ function updateUser_(p,s) {
 
 function deactivateUser_(p,s) {
   requireRole_(s,['ADMIN','SUPER_ADMIN']);
+  if (String(p.staffId || '').trim() === String(s.staffId || '').trim()) {
+    throw new Error('CANNOT_DEACTIVATE_SELF');
+  }
   return updateUser_({staffId:p.staffId,active:false},s);
 }
 
@@ -916,6 +1054,9 @@ function resetPassword_(p,s) {
     return n>0 && String(r[h['Staff ID']] || '').trim()===staffId;
   });
   if (idx<1) throw new Error('USER_NOT_FOUND');
+
+  const currentRole = String(data[idx][h['Role']] || '').trim().toUpperCase();
+  assertCanManageUser_(s, staffId, currentRole);
 
   const salt = Utilities.getUuid().replace(/-/g,'').slice(0,16);
   data[idx][h['Password Hash']] = salt+'$'+hash_(password,salt);
@@ -1142,7 +1283,10 @@ function humanError_(code) {
     INITIAL_ADMIN_NAME_NOT_SET:'ยังไม่ได้ตั้ง INITIAL_ADMIN_NAME ใน Script Properties',
     INITIAL_ADMIN_PASSWORD_NOT_SET:'ยังไม่ได้ตั้ง INITIAL_ADMIN_PASSWORD ใน Script Properties',
     INITIAL_ADMIN_ROLE_NOT_SET:'ยังไม่ได้ตั้ง Role ของ Initial Admin',
-    INVALID_USER_ROLE:'Role ไม่ถูกต้อง'
+    INVALID_USER_ROLE:'Role ไม่ถูกต้อง',
+    ROLE_ESCALATION_DENIED:'ไม่มีสิทธิ์กำหนดหรือจัดการ Role ระดับนี้',
+    CANNOT_DEACTIVATE_SELF:'ไม่สามารถระงับบัญชีของตนเองได้',
+    TRANSACTION_ROLLBACK_FAILED:'เกิดข้อผิดพลาดร้ายแรงระหว่างย้อนคืนรายการ กรุณาหยุดใช้งานรายการนี้และให้ผู้ดูแลตรวจสอบ Audit Log'
   };
   return map[code] || code;
 }
@@ -1314,6 +1458,62 @@ function validateRole_(role) {
 
 function requireRole_(s,allowed) {
   if (!allowed.includes(String(s.role || '').toUpperCase())) throw new Error('ACCESS_DENIED');
+}
+
+function requireBootstrapAccess_(request) {
+  // First-install bootstrap is allowed only while there are no users.
+  // Once a user exists, setup/seed require a valid SUPER_ADMIN session token.
+  try {
+    const ss = getSpreadsheet_();
+    const usersSheet = ss && ss.getSheetByName(SHEETS.USERS);
+    if (!usersSheet || usersSheet.getLastRow() <= 1) return true;
+  } catch (e) {
+    // setupSystem must still be able to initialize an empty spreadsheet.
+    return true;
+  }
+
+  const token = request && request.token;
+  const session = requireSession_(token);
+  requireRole_(session,['SUPER_ADMIN']);
+  return true;
+}
+
+function assertCanAssignRole_(actor, role) {
+  const actorRole = String(actor && actor.role || '').toUpperCase();
+  const targetRole = String(role || '').toUpperCase();
+  if (actorRole === 'SUPER_ADMIN') return true;
+  if (actorRole === 'ADMIN' && ['NURSE','MANAGER'].includes(targetRole)) return true;
+  throw new Error('ROLE_ESCALATION_DENIED');
+}
+
+function assertCanManageUser_(actor, targetStaffId, targetRole) {
+  const actorRole = String(actor && actor.role || '').toUpperCase();
+  const tRole = String(targetRole || '').toUpperCase();
+  if (actorRole === 'SUPER_ADMIN') return true;
+  if (actorRole === 'ADMIN' && ['NURSE','MANAGER'].includes(tRole)) return true;
+  throw new Error('ROLE_ESCALATION_DENIED');
+}
+
+function truncateAfterRow_(sheet, keepLastRow) {
+  const currentLastRow = sheet.getLastRow();
+  if (currentLastRow > keepLastRow) {
+    sheet.deleteRows(keepLastRow + 1, currentLastRow - keepLastRow);
+  }
+}
+
+function endOfDay_(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
+function isUsableLot_(status, expiryDate, currentQty, nowDate) {
+  const normalizedStatus = String(status || 'ACTIVE').trim().toUpperCase();
+  if (normalizedStatus !== 'ACTIVE') return false;
+  if (!(Number(currentQty) > 0)) return false;
+  const exp = endOfDay_(expiryDate);
+  if (!exp) return false;
+  const now = nowDate instanceof Date ? nowDate : new Date();
+  return exp.getTime() >= now.getTime();
 }
 
 function updateUserLastLogin_(staffId) {

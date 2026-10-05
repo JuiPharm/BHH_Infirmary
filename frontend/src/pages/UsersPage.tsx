@@ -152,7 +152,9 @@ export const UsersPage: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                users.map((u) => (
+                users.map((u) => {
+                  const protectedFromAdmin = session?.role === 'ADMIN' && ['ADMIN', 'SUPER_ADMIN'].includes(u.role);
+                  return (
                   <tr key={u.staffId}>
                     <td><strong>{u.staffId}</strong></td>
                     <td>{u.name}</td>
@@ -172,6 +174,7 @@ export const UsersPage: React.FC = () => {
                     <td style={{ textAlign: 'right' }}>
                       <button
                         className="btn btn-outline btn-sm"
+                        disabled={protectedFromAdmin}
                         style={{ marginRight: '8px' }}
                         onClick={() => {
                           setResetModalUser(u);
@@ -182,6 +185,7 @@ export const UsersPage: React.FC = () => {
                       </button>
                       <button
                         className={`btn btn-sm ${u.active ? 'btn-outline' : 'btn-secondary'}`}
+                        disabled={protectedFromAdmin || u.staffId === session?.staffId}
                         style={{ color: u.active ? '#dc2626' : '#059669' }}
                         onClick={() => handleToggleActive(u)}
                       >
@@ -189,7 +193,8 @@ export const UsersPage: React.FC = () => {
                       </button>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -241,9 +246,13 @@ export const UsersPage: React.FC = () => {
                   required
                 >
                   <option value="NURSE">NURSE (จ่ายยา, ค้นหานักเรียน, ดูสต็อก)</option>
-                  <option value="ADMIN">ADMIN (จ่ายยา, รับเข้า, ปรับสต็อก, แดชบอร์ด)</option>
                   <option value="MANAGER">MANAGER (ดูรายงานและแดชบอร์ดอย่างเดียว)</option>
-                  <option value="SUPER_ADMIN">SUPER_ADMIN (ทุกสิทธิ์ + จัดการผู้ใช้/ระบบ)</option>
+                  {session?.role === 'SUPER_ADMIN' && (
+                    <>
+                      <option value="ADMIN">ADMIN (จ่ายยา, รับเข้า, ปรับสต็อก, แดชบอร์ด)</option>
+                      <option value="SUPER_ADMIN">SUPER_ADMIN (ทุกสิทธิ์ + จัดการผู้ใช้/ระบบ)</option>
+                    </>
+                  )}
                 </select>
               </div>
 
