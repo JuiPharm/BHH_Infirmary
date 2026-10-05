@@ -258,6 +258,16 @@ export const VisitPage: React.FC = () => {
       return;
     }
 
+    const hasDrug = cart.some((c) => normalizeItemType(c.itemType) === 'DRUG');
+    if (hasDrug && (loadingSafety || !safetyProfile)) {
+      Swal.fire(
+        'ยังตรวจสอบ Drug Allergy ไม่สำเร็จ',
+        'ไม่สามารถจ่ายยาได้จนกว่าจะโหลด Student Safety Profile สำเร็จ กรุณาเลือกนักเรียนใหม่หรือโหลดข้อมูลอีกครั้ง',
+        'error'
+      );
+      return;
+    }
+
     for (const c of cart) {
       if (c.qty > c.currentStock) {
         Swal.fire('สต็อกไม่เพียงพอ', `${c.genericName || c.itemCode} คงเหลือ ${c.currentStock}`, 'error');
