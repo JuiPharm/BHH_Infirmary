@@ -57,6 +57,14 @@ export interface Item {
   'Active/Inactive': boolean | string;
 }
 
+export type StockLotStatus =
+  | 'ACTIVE'
+  | 'QUARANTINE'
+  | 'DAMAGED'
+  | 'RECALL'
+  | 'EXPIRED'
+  | 'INACTIVE';
+
 export interface StockLot {
   'Stock Lot ID': string;
   'Item Code': string;
@@ -67,7 +75,53 @@ export interface StockLot {
   'Current Qty': number;
   'Unit Cost': number;
   Supplier: string;
-  Status: string;
+  Status: StockLotStatus | string;
+}
+
+export interface StockCountRecord {
+  'Count ID': string;
+  'Count Line ID': string;
+  'Count Date': string;
+  'Stock Lot ID': string;
+  'Item Code': string;
+  'System Qty': number;
+  'Counted Qty': number;
+  Variance: number;
+  Reason: string;
+  'Staff ID': string;
+  'Created At': string;
+}
+
+export interface StockReconciliationMismatch {
+  itemCode: string;
+  aggregateQty: number;
+  usableLotQty: number;
+  variance: number;
+  balanced: boolean;
+}
+
+export interface StockReconciliationData {
+  checked: number;
+  balanced: boolean;
+  mismatchCount: number;
+  mismatches: StockReconciliationMismatch[];
+}
+
+export interface InventoryIntegrityData {
+  totalLots: number;
+  statusCounts: Record<string, number>;
+  expiredActiveLots: number;
+  quarantinedQty: number;
+  recalledQty: number;
+  damagedQty: number;
+  reconciliation: StockReconciliationData;
+}
+
+export interface StockCountSubmitResult {
+  countId: string;
+  countedLines: number;
+  adjustedLines: number;
+  totalAbsoluteVariance: number;
 }
 
 export interface CartItem {
