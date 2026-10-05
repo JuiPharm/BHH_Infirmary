@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { normalizeItemType } from '../domain/stock';
 import { hasVisitClinicalContent } from '../domain/visit';
-import { CartItem, Item, Student, VisitDisposition, VisitVitals } from '../types';
+import { CartItem, Item, Student, StudentSafetyProfile, VisitDisposition, VisitVitals } from '../types';
+import { StudentSafetyCard } from '../components/StudentSafetyCard';
 
 const COMMON_SYMPTOMS = [
   'ปวดศีรษะ (Headache)',
@@ -59,6 +60,8 @@ export const VisitPage: React.FC = () => {
   const [studentList, setStudentList] = useState<Student[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [searchingStudent, setSearchingStudent] = useState(false);
+  const [safetyProfile, setSafetyProfile] = useState<StudentSafetyProfile | null>(null);
+  const [loadingSafety, setLoadingSafety] = useState(false);
 
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [otherSymptom, setOtherSymptom] = useState('');
@@ -113,6 +116,26 @@ export const VisitPage: React.FC = () => {
       Swal.fire('ค้นหาไม่สำเร็จ', err.message, 'error');
     } finally {
       setSearchingStudent(false);
+    }
+  };
+
+  const selectStudent = async (student: Student) => {
+    setSelectedStudent(student);
+    setSafetyProfile(null);
+    if (!session?.token) return;
+    setLoadingSafety(true);
+    try {
+      const profile = await api<StudentSafetyProfile>(
+        'getStudentSafetyProfile',
+        { studentId: student.studentId },
+        session.token
+      );
+      setSafetyProfile(profile);
+    } catch (err: any) {
+      console.error('Failed to load student safety profile', err);
+      Swal.fire('โหลดข้อมูลความเสี่ยงไม่สำเร็จ', err.message, 'warning');
+    } finally {
+      setLoadingSafety(false);
     }
   };
 
@@ -180,6 +203,7 @@ export const VisitPage: React.FC = () => {
 
   const resetForm = () => {
     setSelectedStudent(null);
+    setSafetyProfile(null);
     setStudentQuery('');
     setStudentList([]);
     setSelectedSymptoms([]);
@@ -351,7 +375,7 @@ export const VisitPage: React.FC = () => {
                 </div>
                 <div style={{ marginTop: 12 }}>
                   {studentList.map((stu) => (
-                    <div key={stu.studentId} className="cart-item" style={{ cursor: 'pointer' }} onClick={() => setSelectedStudent(stu)}>
+                    <div key={stu.studentId} className="cart-item" style={{ cursor: 'pointer' }} onClick={() => selectStudent(stu)}>
                       <div>
                         <strong>{stu.fullName}</strong>
                         <div style={{ color: '#64748b', fontSize: '.85rem' }}>{stu.studentId} · {stu.grade}/{stu.className}</div>
@@ -367,10 +391,14 @@ export const VisitPage: React.FC = () => {
                   <strong>{selectedStudent.fullName}</strong>
                   <div style={{ color: '#64748b' }}>{selectedStudent.studentId} · {selectedStudent.grade}/{selectedStudent.className}</div>
                 </div>
-                <button className="btn btn-outline btn-sm" onClick={() => setSelectedStudent(null)}>เปลี่ยนนักเรียน</button>
+                <button className="btn btn-outline btn-sm" onClick={() => { setSelectedStudent(null); setSafetyProfile(null); }}>เปลี่ยนนักเรียน</button>
               </div>
             )}
           </section>
+
+          {selectedStudent && (
+            <StudentSafetyCard profile={safetyProfile} loading={loadingSafety} compact />
+          )}
 
           <section className="card">
             <div className="card-header"><span className="card-title">2. อาการและสัญญาณชีพ</span></div>
