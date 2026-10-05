@@ -3,6 +3,8 @@ import {
   allocateFEFO,
   validateDispenseQty,
   totalStock,
+  usableStock,
+  isLotUsable,
   reconcileStock,
   getStockAlertLevel,
   getDaysUntilExpiry,
@@ -63,6 +65,24 @@ describe('FEFO Stock Engine', () => {
 
     // If requesting more than valid non-expired stock, rejects entire transaction
     expect(() => allocateFEFO(lots, 6, new Date('2026-09-08'))).toThrow('INSUFFICIENT_STOCK');
+  });
+
+  it('treats the expiry date as usable through end-of-day', () => {
+    const lot: Lot = { lotId: 'TODAY', expiry: '2026-10-05', currentQty: 5, status: 'ACTIVE' };
+    expect(isLotUsable(lot, new Date('2026-10-05T14:00:00'))).toBe(true);
+    expect(allocateFEFO([lot], 5, new Date('2026-10-05T14:00:00'))).toEqual([{ lotId: 'TODAY', qty: 5 }]);
+    expect(isLotUsable(lot, new Date('2026-10-06T00:00:00'))).toBe(false);
+  });
+
+  it('excludes quarantine, damaged, recalled and expired-status lots from usable stock', () => {
+    const lots: Lot[] = [
+      { lotId: 'A', expiry: '2027-01-01', currentQty: 10, status: 'ACTIVE' },
+      { lotId: 'Q', expiry: '2027-01-01', currentQty: 20, status: 'QUARANTINE' },
+      { lotId: 'D', expiry: '2027-01-01', currentQty: 30, status: 'DAMAGED' },
+      { lotId: 'R', expiry: '2027-01-01', currentQty: 40, status: 'RECALLED' },
+      { lotId: 'E', expiry: '2025-01-01', currentQty: 50, status: 'ACTIVE' }
+    ];
+    expect(usableStock(lots, new Date('2026-10-05T12:00:00'))).toBe(10);
   });
 
   it('ignores inactive lots completely', () => {
@@ -220,11 +240,10 @@ describe('Role-Based Access Control (RBAC) Matrix', () => {
     expect(checkPermission('MANAGER', 'getDashboardSummary')).toBe(true);
   });
 
-  it('enforces ADMIN can manage stock but not users/config', () => {
+  it('enforces ADMIN can manage stock while system config remains SUPER_ADMIN-only', () => {
     expect(checkPermission('ADMIN', 'dispense')).toBe(true);
     expect(checkPermission('ADMIN', 'receiveStock')).toBe(true);
     expect(checkPermission('ADMIN', 'adjustStock')).toBe(true);
-    expect(checkPermission('ADMIN', 'getUsers')).toBe(false);
     expect(checkPermission('ADMIN', 'updateConfig')).toBe(false);
   });
 
