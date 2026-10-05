@@ -28,6 +28,8 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   INVALID_BOOLEAN: 'ค่าตัวเลือก Yes/No ไม่ถูกต้อง',
   INPUT_TOO_LONG: 'ข้อมูลที่กรอกยาวเกินขนาดที่ระบบกำหนด',
   INVALID_LOT_STATUS: 'สถานะ Stock Lot ไม่ถูกต้อง',
+  LOT_EXPIRED_CANNOT_ACTIVATE: 'ไม่สามารถเปลี่ยน Lot ที่หมดอายุแล้วกลับเป็น ACTIVE ได้',
+  INVALID_EXPIRY_DATE: 'วันหมดอายุไม่ถูกต้องหรือหมดอายุแล้ว',
   LOT_STATUS_UNCHANGED: 'Stock Lot อยู่ในสถานะนี้อยู่แล้ว',
   INVALID_COUNT_QTY: 'จำนวนตรวจนับต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป',
   DUPLICATE_COUNT_LINE: 'มี Stock Lot ซ้ำในรายการตรวจนับ',
