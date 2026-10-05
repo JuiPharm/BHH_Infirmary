@@ -14,12 +14,14 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setTab }) => {
   if (!session) return null;
 
   const role = session.role;
+  const homeTab = role === 'MANAGER' ? 'dashboard' : 'visit';
 
   const navItems = [
     { id: 'visit', label: 'รับบริการใหม่', show: ['NURSE', 'ADMIN', 'SUPER_ADMIN'].includes(role) },
     { id: 'dashboard', label: 'แดชบอร์ด', show: ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) },
     { id: 'students', label: 'ประวัตินักเรียน', show: true },
     { id: 'stock', label: 'คลังเวชภัณฑ์', show: true },
+    { id: 'inventory-ops', label: 'Inventory Ops', show: ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) },
     { id: 'users', label: 'จัดการผู้ใช้', show: ['ADMIN', 'SUPER_ADMIN'].includes(role) },
     { id: 'config', label: 'ตั้งค่าระบบ', show: ['SUPER_ADMIN'].includes(role) },
   ].filter(item => item.show);
@@ -48,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setTab }) => {
   return (
     <header className="header">
       <div className="header-inner">
-        <div className="brand" style={{ cursor: 'pointer' }} onClick={() => handleSelectTab('visit')}>
+        <div className="brand" style={{ cursor: 'pointer' }} onClick={() => handleSelectTab(homeTab)}>
           <img
             src="https://lh5.googleusercontent.com/d/1r7PM1ogHIbxskvcauVIYaQOfSHXWGncO"
             alt="BHH Logo"

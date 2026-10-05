@@ -26,7 +26,17 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   TRANSACTION_ROLLBACK_FAILED: 'เกิดข้อผิดพลาดระหว่างย้อนคืนรายการ กรุณาหยุดทำรายการและติดต่อผู้ดูแลระบบ',
   INVALID_PHONE: 'รูปแบบหมายเลขโทรศัพท์ไม่ถูกต้อง',
   INVALID_BOOLEAN: 'ค่าตัวเลือก Yes/No ไม่ถูกต้อง',
-  INPUT_TOO_LONG: 'ข้อมูลที่กรอกยาวเกินขนาดที่ระบบกำหนด'
+  INPUT_TOO_LONG: 'ข้อมูลที่กรอกยาวเกินขนาดที่ระบบกำหนด',
+  INVALID_LOT_STATUS: 'สถานะ Stock Lot ไม่ถูกต้อง',
+  LOT_EXPIRED_CANNOT_ACTIVATE: 'ไม่สามารถเปลี่ยน Lot ที่หมดอายุแล้วกลับเป็น ACTIVE ได้',
+  INVALID_EXPIRY_DATE: 'วันหมดอายุไม่ถูกต้องหรือหมดอายุแล้ว',
+  LOT_WITH_QTY_CANNOT_INACTIVATE: 'ไม่สามารถตั้ง Lot เป็น INACTIVE ขณะที่ยังมีคงเหลือ ต้องจัดการยอดให้เป็น 0 ก่อน',
+  LOT_NOT_YET_EXPIRED: 'ไม่สามารถตั้งสถานะ EXPIRED ก่อนวันหมดอายุจริงได้',
+  INVALID_LOT_STATUS_TRANSITION: 'ไม่อนุญาตให้เปลี่ยนสถานะ Lot ตามเส้นทางนี้',
+  LOT_STATUS_UNCHANGED: 'Stock Lot อยู่ในสถานะนี้อยู่แล้ว',
+  INVALID_COUNT_QTY: 'จำนวนตรวจนับต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป',
+  DUPLICATE_COUNT_LINE: 'มี Stock Lot ซ้ำในรายการตรวจนับ',
+  TOO_MANY_COUNT_LINES: 'จำนวนรายการตรวจนับมากเกินขีดจำกัดต่อครั้ง'
 };
 
 export function getErrorMessage(codeOrMsg?: string): string {
@@ -50,7 +60,9 @@ const CACHEABLE_ACTIONS = new Set([
   'getDashboardData',
   'getDashboardSummary',
   'getConfig',
-  'getUsers'
+  'getUsers',
+  'getInventoryIntegrity',
+  'getStockCounts'
 ]);
 
 const MUTATION_ACTIONS = new Set([
@@ -63,7 +75,9 @@ const MUTATION_ACTIONS = new Set([
   'updateUser',
   'resetPassword',
   'deactivateUser',
-  'updateConfig'
+  'updateConfig',
+  'updateStockLotStatus',
+  'submitStockCount'
 ]);
 
 export function clearClientCache(actionPrefix?: string): void {
