@@ -41,8 +41,8 @@ function out_(obj) {
 function route_(r) {
   r = r || {};
   const action = String(r.action || '');
-  if (action === 'setupSystem') return setupSystem_(r);
-  if (action === 'seedUser') return seedUser_(r);
+  if (action === 'setupSystem') return setupSystemApi_(r);
+  if (action === 'seedUser') return seedUserApi_(r);
   if (action === 'login') return login_(r.payload || {});
   if (action === 'logout') return logout_(r.token);
   const session = requireSession_(r.token);
@@ -85,8 +85,12 @@ function route_(r) {
    SETUP / CONFIG
 ========================= */
 
-function setupSystem_(request) {
+function setupSystemApi_(request) {
   requireBootstrapAccess_(request);
+  return setupSystem();
+}
+
+function setupSystem() {
   const ss = getSpreadsheet_();
   Object.keys(HEADERS).forEach(function(name) {
     const sh = ss.getSheetByName(name) || ss.insertSheet(name);
@@ -124,8 +128,12 @@ function setDefaultConfigs_() {
   INITIAL_ADMIN_PASSWORD
   INITIAL_ADMIN_ROLE   (default ADMIN)
 */
-function seedUser_(request) {
+function seedUserApi_(request) {
   requireBootstrapAccess_(request);
+  return seedUser();
+}
+
+function seedUser() {
   const props = PropertiesService.getScriptProperties();
   const staffId = String(props.getProperty('INITIAL_ADMIN_ID') || '').trim();
   const name = String(props.getProperty('INITIAL_ADMIN_NAME') || '').trim();
