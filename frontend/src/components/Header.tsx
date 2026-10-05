@@ -14,6 +14,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setTab }) => {
   if (!session) return null;
 
   const role = session.role;
+  const homeTab = role === 'MANAGER' ? 'dashboard' : 'visit';
 
   const navItems = [
     { id: 'visit', label: 'รับบริการใหม่', show: ['NURSE', 'ADMIN', 'SUPER_ADMIN'].includes(role) },
@@ -49,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setTab }) => {
   return (
     <header className="header">
       <div className="header-inner">
-        <div className="brand" style={{ cursor: 'pointer' }} onClick={() => handleSelectTab('visit')}>
+        <div className="brand" style={{ cursor: 'pointer' }} onClick={() => handleSelectTab(homeTab)}>
           <img
             src="https://lh5.googleusercontent.com/d/1r7PM1ogHIbxskvcauVIYaQOfSHXWGncO"
             alt="BHH Logo"
