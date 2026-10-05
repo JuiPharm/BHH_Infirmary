@@ -65,6 +65,26 @@ export interface DispenseItemRecord {
   'Created At': string;
 }
 
+export type VisitDisposition =
+  | 'RETURN_TO_CLASS'
+  | 'OBSERVATION'
+  | 'SEND_HOME'
+  | 'PARENT_PICKUP'
+  | 'REFER_CLINIC'
+  | 'REFER_HOSPITAL'
+  | 'EMERGENCY_TRANSFER'
+  | 'OTHER';
+
+export interface VisitVitals {
+  temperature?: number | '';
+  bpSystolic?: number | '';
+  bpDiastolic?: number | '';
+  pulse?: number | '';
+  respiratoryRate?: number | '';
+  spo2?: number | '';
+  weight?: number | '';
+}
+
 export interface DispenseHeaderRecord {
   'Visit ID': string;
   'Student ID': string;
@@ -77,6 +97,18 @@ export interface DispenseHeaderRecord {
   Status: string;
   'Created At': string;
   'Client Transaction ID': string;
+  Temperature?: number | string;
+  'BP Systolic'?: number | string;
+  'BP Diastolic'?: number | string;
+  Pulse?: number | string;
+  'Respiratory Rate'?: number | string;
+  SpO2?: number | string;
+  Weight?: number | string;
+  Assessment?: string;
+  Interventions?: string;
+  Disposition?: VisitDisposition | string;
+  'Outcome Note'?: string;
+  'Completed At'?: string;
   items?: DispenseItemRecord[];
 }
 
