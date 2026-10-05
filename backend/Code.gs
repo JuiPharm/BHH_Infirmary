@@ -472,7 +472,7 @@ function submitVisit_(p,s) {
       });
     });
 
-    const vitals = p.vitals || {};
+    const vitals = validateVitals_(p.vitals || {});
     const completedAt = t;
     const hrow = [
       visitId,
@@ -1557,6 +1557,33 @@ function isUsableLot_(status, expiryDate, currentQty, nowDate) {
   if (!exp) return false;
   const now = nowDate instanceof Date ? nowDate : new Date();
   return exp.getTime() >= now.getTime();
+}
+
+function validateVitals_(raw) {
+  const v = raw || {};
+  const out = {
+    temperature:normalizeOptionalNumber_(v.temperature),
+    bpSystolic:normalizeOptionalInteger_(v.bpSystolic),
+    bpDiastolic:normalizeOptionalInteger_(v.bpDiastolic),
+    pulse:normalizeOptionalInteger_(v.pulse),
+    respiratoryRate:normalizeOptionalInteger_(v.respiratoryRate),
+    spo2:normalizeOptionalInteger_(v.spo2),
+    weight:normalizeOptionalNumber_(v.weight)
+  };
+
+  assertRange_(out.temperature,30,45);
+  assertRange_(out.bpSystolic,40,260);
+  assertRange_(out.bpDiastolic,20,180);
+  assertRange_(out.pulse,20,250);
+  assertRange_(out.respiratoryRate,5,100);
+  assertRange_(out.spo2,50,100);
+  assertRange_(out.weight,1,300);
+  return out;
+}
+
+function assertRange_(value,min,max) {
+  if (value === '') return;
+  if (Number(value) < min || Number(value) > max) throw new Error('INVALID_VITAL_SIGN');
 }
 
 function normalizeOptionalNumber_(value) {
