@@ -194,10 +194,10 @@ function buildReferralEmail_(visit,type,prefixKey) {
   const emergency = type === 'EMERGENCY_TRANSFER';
   const name = String(visit['Recipient Name'] || '').trim() || recipientNameFromLegacyVisit_(visit);
   const timestamp = formatVisitDateForEmail_(visit);
-  const configuredPrefix = String(getConfigValue_(prefixKey,'')).trim();
+  const configuredPrefix = emailSubjectText_(getConfigValue_(prefixKey,''));
   const defaultPrefix = emergency ? '[URGENT][BHH Infirmary] Emergency Transfer' : '[BHH Infirmary] Refer Hospital';
   const prefix = configuredPrefix || defaultPrefix;
-  const subject = prefix + ' | ' + (name || 'Unknown recipient') + ' | ' + timestamp;
+  const subject = prefix + ' | ' + emailSubjectText_(name || 'Unknown recipient') + ' | ' + emailSubjectText_(timestamp);
 
   const statusTitle = emergency ? 'EMERGENCY TRANSFER' : 'ส่งต่อโรงพยาบาล — REFER HOSPITAL';
   const statusDetail = emergency
@@ -396,4 +396,13 @@ function escapeHtml_(value) {
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;')
     .replace(/'/g,'&#39;');
+}
+
+
+function emailSubjectText_(value) {
+  return String(value === undefined || value === null ? '' : value)
+    .replace(/[\r\n\t]+/g,' ')
+    .replace(/\s{2,}/g,' ')
+    .trim()
+    .slice(0,300);
 }
