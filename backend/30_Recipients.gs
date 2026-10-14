@@ -190,6 +190,12 @@ function validateFreeTextAllergyForDispense_(recipient,p,plans) {
   return result;
 }
 
+// Prevent formula evaluation if a CSV/JSON import contains spreadsheet commands.
+function safeImportedSheetText_(value) {
+  const text = String(value || '');
+  return /^[=+@-]/.test(text) ? "'"+text : text;
+}
+
 // Spreadsheet has no atomic multi-row upsert. All rows are validated first and
 // old rows are kept untouched except the matching ID; any partial write is
 // reversed from the in-memory snapshot before the lock is released.
@@ -206,6 +212,8 @@ function importStaffMaster_(p,s) {
     const name = limitedText_(raw.fullName || raw['Full Name'],200);
     const type = String(raw.recipientType || raw['Recipient Type'] || '').trim().toUpperCase();
     const status = String(raw.status || raw.Status || 'ACTIVE').trim().toUpperCase();
+    // Never let an imported ID turn into a spreadsheet formula.
+    if (/^[=+@-]/.test(id)) throw new Error('INVALID_STAFF_MASTER_ROW');
     if (!id || !name || STAFF_MASTER_TYPES.indexOf(type) < 0 ||
         ['ACTIVE','INACTIVE'].indexOf(status) < 0) {
       throw new Error('INVALID_STAFF_MASTER_ROW');
@@ -213,8 +221,10 @@ function importStaffMaster_(p,s) {
     if (seen[id]) throw new Error('DUPLICATE_STAFF_ID_IN_IMPORT');
     seen[id] = true;
     return {
-      id:id, name:name, type:type,
-      department:limitedText_(raw.department || raw.Department,200),
+      id:id,
+      name:safeImportedSheetText_(name),
+      type:type,
+      department:safeImportedSheetText_(limitedText_(raw.department || raw.Department,200)),
       status:status
     };
   });
