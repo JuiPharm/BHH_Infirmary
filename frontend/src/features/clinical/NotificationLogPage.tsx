@@ -82,11 +82,46 @@ export const NotificationLogPage: React.FC = () => {
     }
   };
 
+  const unlockAfterVerification = async (item: NotificationLogRecord) => {
+    if (!session?.token || role !== 'SUPER_ADMIN' || !['UNKNOWN','SENDING'].includes(item.Status))
+      return;
+    const confirmation = await Swal.fire({
+      title: 'ปลดล็อก Email ที่สถานะไม่แน่นอน',
+      text: `Visit ${item['Visit ID']} — ต้องตรวจสอบกับผู้รับ Email ผ่านช่องทางอื่นให้แน่ใจว่าไม่เคยได้รับ Email นี้ก่อน มิฉะนั้นอาจส่งข้อมูลผู้รับบริการซ้ำ`,
+      input: 'text',
+      inputLabel: 'พิมพ์ CONFIRMED_NOT_DELIVERED หลังตรวจสอบเสร็จ',
+      inputPlaceholder: 'CONFIRMED_NOT_DELIVERED',
+      inputValidator: (value) => value === 'CONFIRMED_NOT_DELIVERED'
+        ? undefined : 'ต้องยืนยันด้วยข้อความให้ถูกต้อง',
+      showCancelButton: true,
+      confirmButtonText: 'ปลดล็อกเพื่อ Retry (ยังไม่ส่ง)',
+      cancelButtonText: 'ยกเลิก',
+      icon: 'warning',
+      confirmButtonColor: '#b91c1c'
+    });
+    if (!confirmation.isConfirmed) return;
+    setBusyId(item['Notification ID']);
+    try {
+      await api('resolveUncertainNotification',
+        { notificationId:item['Notification ID'], confirmation:'CONFIRMED_NOT_DELIVERED' },
+        session.token, undefined, 30000, true);
+      await Swal.fire('ปลดล็อกแล้ว',
+        'สถานะเปลี่ยนเป็น FAILED เท่านั้น — ยังไม่ได้ส่ง Email อีกครั้ง กรุณาตรวจสอบก่อนเลือก Retry',
+        'warning');
+      await load();
+    } catch (err) {
+      await Swal.fire('ไม่สามารถปลดล็อก',
+        err instanceof Error ? err.message : 'เกิดข้อผิดพลาด', 'error');
+    } finally {
+      setBusyId('');
+    }
+  };
+
   const reconcile = async () => {
     if (!session?.token || !canRecover) return;
     const confirm = await Swal.fire({
       title: 'ตรวจหา Referral ที่ยังไม่มี Notification Log',
-      text: 'การดำเนินการนี้อาจส่ง Email ที่ยังไม่ได้สร้าง Log สูงสุด 25 Visit กรุณาตรวจสอบการตั้งค่า Email และความเหมาะสมก่อน',
+      text: 'การดำเนินการนี้อาจส่ง Email ของ Visit ใน 72 ชั่วโมงล่าสุดที่ยังไม่ได้สร้าง Log สูงสุด 25 Visit กรุณาตรวจสอบการตั้งค่า Email และความเหมาะสมก่อน',
       icon: 'warning', showCancelButton: true,
       confirmButtonText: 'ตรวจและส่งรายการที่ขาด', cancelButtonText: 'ยกเลิก'
     });
@@ -169,7 +204,13 @@ export const NotificationLogPage: React.FC = () => {
                             onClick={() => void retry(row)}>
                             {busyId === row['Notification ID'] ? 'กำลัง Retry...' : 'Retry'}
                           </button>
-                        : '—'}
+                        : role === 'SUPER_ADMIN' && uncertain
+                          ? <button className="btn btn-outline btn-sm"
+                              disabled={!!busyId}
+                              onClick={() => void unlockAfterVerification(row)}>
+                              ตรวจสอบแล้ว / ปลดล็อก
+                            </button>
+                          : '—'}
                     </td>
                   </tr>
                 );
