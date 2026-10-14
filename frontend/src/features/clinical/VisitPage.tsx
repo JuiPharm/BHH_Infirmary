@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
 import { api } from '../../api';
 import { StudentSafetyCard } from '../../components/StudentSafetyCard';
@@ -119,6 +119,7 @@ export const VisitPage: React.FC = () => {
   const [itemTypeFilter, setItemTypeFilter] = useState<'ALL' | 'DRUG' | 'MEDICAL_SUPPLY'>('ALL');
   const [loadingItems, setLoadingItems] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const pendingVisitRef = useRef<{ fingerprint: string; id: string } | null>(null);
 
   useEffect(() => {
     if (!session?.token) return;
@@ -138,23 +139,30 @@ export const VisitPage: React.FC = () => {
       return;
     }
 
+    let active = true;
     const timer = window.setTimeout(async () => {
       setSearchingRecipient(true);
       try {
         const data = await searchRecipients(q, session.token);
-        setRecipients(data || []);
+        if (active) setRecipients(data || []);
       } catch (err: any) {
-        console.error('Recipient search failed', err);
-        setRecipients([]);
+        if (active) {
+          console.error('Recipient search failed', err);
+          setRecipients([]);
+        }
       } finally {
-        setSearchingRecipient(false);
+        if (active) setSearchingRecipient(false);
       }
     }, 300);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
   }, [recipientQuery, selectedRecipient, session?.token]);
 
   useEffect(() => {
+    let active = true;
     setSafetyProfile(null);
     if (
       !selectedRecipient ||
@@ -171,12 +179,15 @@ export const VisitPage: React.FC = () => {
       { studentId: selectedRecipient.recipientId },
       session.token
     )
-      .then(setSafetyProfile)
+      .then((profile) => { if (active) setSafetyProfile(profile); })
       .catch((err) => {
-        console.error('Failed to load student safety profile', err);
-        Swal.fire('โหลด Safety Profile ไม่สำเร็จ', err.message, 'warning');
+        if (active) {
+          console.error('Failed to load student safety profile', err);
+          Swal.fire('โหลด Safety Profile ไม่สำเร็จ', err.message, 'warning');
+        }
       })
-      .finally(() => setLoadingSafety(false));
+      .finally(() => { if (active) setLoadingSafety(false); });
+    return () => { active = false; };
   }, [selectedRecipient, session?.token]);
 
   const loadItems = async () => {
@@ -351,6 +362,7 @@ export const VisitPage: React.FC = () => {
     setWeight('');
     setCart([]);
     setItemSearch('');
+    pendingVisitRef.current = null;
   };
 
   const handleSubmit = async () => {
@@ -431,29 +443,27 @@ export const VisitPage: React.FC = () => {
         : disposition === 'REFER_HOSPITAL'
           ? 'ยืนยันส่งต่อโรงพยาบาล'
           : 'ยืนยันบันทึก Visit',
-      html: [
-        `<b>ผู้รับบริการ:</b> ${selectedRecipient.recipientName}`,
-        `<b>ประเภท:</b> ${RECIPIENT_LABELS[selectedRecipient.recipientType]}`,
-        `<b>อาการ:</b> ${selectedSymptoms.map((x) => x.symptom).join(', ') || otherSymptom || '-'}`,
-        `<b>Visit Category:</b> ${derivedCategory || '-'}`,
-        `<b>Clinical Alert:</b> ${clinicalAlert}`,
-        `<b>Disposition:</b> ${dispositionLabel}`,
-        `<b>ยา/เวชภัณฑ์:</b> ${cart.length ? cart.length + ' รายการ' : 'ไม่มีการจ่าย'}`
-      ].join('<br/>'),
+      // Untrusted fields are rendered via text, not HTML.
+      text: [
+        `ผู้รับบริการ: ${selectedRecipient.recipientName}`,
+        `ประเภท: ${RECIPIENT_LABELS[selectedRecipient.recipientType]}`,
+        `อาการ: ${selectedSymptoms.map((x) => x.symptom).join(', ') || otherSymptom || '-'}`,
+        `Visit Category: ${derivedCategory || '-'}`,
+        `Clinical Alert: ${clinicalAlert}`,
+        `Disposition: ${dispositionLabel}`,
+        `ยา/เวชภัณฑ์: ${cart.length ? cart.length + ' รายการ' : 'ไม่มีการจ่าย'}`
+      ].join('\n'),
       icon: disposition === 'EMERGENCY_TRANSFER' ? 'warning' : 'question',
       showCancelButton: true,
       confirmButtonText: disposition === 'EMERGENCY_TRANSFER'
         ? 'Complete Emergency Transfer'
         : disposition === 'REFER_HOSPITAL'
-          ? 'Complete & Send Referral'
+          ? 'Complete Referral Visit'
           : 'บันทึก Visit',
       cancelButtonText: 'กลับไปแก้ไข',
       confirmButtonColor: disposition === 'EMERGENCY_TRANSFER' ? '#b91c1c' : '#0b1f3a'
     });
     if (!confirm.isConfirmed) return;
-
-    const clientTransactionId =
-      'VISIT-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9);
 
     setSubmitting(true);
     Swal.fire({
@@ -491,38 +501,47 @@ export const VisitPage: React.FC = () => {
           itemType: c.itemType,
           unit: c.unit
         })),
-        clientTransactionId
       };
-
-      const result = await submitVisitP4(payload, session.token);
+      // Reuse the idempotency key on an unchanged-form network retry.
+      const fingerprint = JSON.stringify(payload);
+      if (!pendingVisitRef.current || pendingVisitRef.current.fingerprint !== fingerprint) {
+        pendingVisitRef.current = {
+          fingerprint,
+          id: 'VISIT-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9)
+        };
+      }
+      const result = await submitVisitP4({
+        ...payload,
+        clientTransactionId: pendingVisitRef.current.id
+      }, session.token);
       const notification = result.notification;
-      let noticeHtml = '';
+      let notice = '';
       let icon: 'success' | 'warning' = 'success';
 
       if (notification?.status === 'SENT') {
-        noticeHtml = '<br/><span style="color:#15803d">✓ Notification ส่งสำเร็จ</span>';
+        notice = 'Notification: ส่ง Email สำเร็จ';
       } else if (notification?.status === 'FAILED') {
         icon = 'warning';
-        noticeHtml =
-          '<br/><span style="color:#b91c1c">Visit บันทึกสำเร็จ แต่ Notification ส่งไม่สำเร็จ — สามารถ Retry จาก Notification Log ได้</span>';
-      } else if (
-        (disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER') &&
-        notification?.status === 'DISABLED'
-      ) {
+        notice = 'Visit บันทึกสำเร็จ แต่ Email ส่งไม่สำเร็จ กรุณาตรวจสอบ Notification Log';
+      } else if (notification?.status === 'DISABLED') {
         icon = 'warning';
-        noticeHtml =
-          '<br/><span style="color:#b45309">Visit บันทึกสำเร็จ แต่ Email Notification ยังถูกปิดใน CONFIG</span>';
+        notice = 'Visit บันทึกสำเร็จ แต่ Email Notification ยังถูกปิดใน CONFIG';
+      } else if (notification?.status === 'UNKNOWN' || notification?.status === 'SENDING') {
+        icon = 'warning';
+        notice = 'สถานะการส่ง Email ยังยืนยันไม่ได้ ห้ามกดส่งซ้ำก่อนตรวจสอบ';
+      } else if (notification?.status === 'PENDING') {
+        icon = 'warning';
+        notice = 'Email รอดำเนินการ กรุณาตรวจสอบ Notification Log';
       }
 
       await Swal.fire({
         icon,
         title: 'บันทึก Visit สำเร็จ',
-        html:
-          `Visit ID: <b>${result.visitId}</b><br/>สถานะ: ${result.status}` +
-          noticeHtml,
+        text: `Visit ID: ${result.visitId}\nสถานะ: ${result.status}\n${notice}`,
         confirmButtonText: 'รับผู้มารับบริการคนถัดไป',
         confirmButtonColor: '#0b1f3a'
       });
+      pendingVisitRef.current = null;
       resetForm();
       loadItems();
     } catch (err: any) {
@@ -592,7 +611,7 @@ export const VisitPage: React.FC = () => {
                 </div>
 
                 {searchingRecipient && (
-                  <div style={{ color: '#64748b', fontSize: '.85rem', padding: '6px 0' }}>
+                  <div role="status" aria-live="polite" style={{ color: '#64748b', fontSize: '.85rem', padding: '6px 0' }}>
                     กำลังค้นหา...
                   </div>
                 )}
@@ -650,6 +669,20 @@ export const VisitPage: React.FC = () => {
                       </button>
                     </div>
                   )}
+
+                {!freeTextMode && (
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    style={{ marginTop: 12, minHeight: 44 }}
+                    onClick={() => {
+                      setFreeTextMode(true);
+                      setFreeName(recipientQuery.trim());
+                    }}
+                  >
+                    + บันทึกผู้รับบริการที่ไม่มีใน Master (Free Text)
+                  </button>
+                )}
 
                 {freeTextMode && (
                   <div
@@ -826,7 +859,8 @@ export const VisitPage: React.FC = () => {
                       type="button"
                       className={`symptom-chip ${selectedSymptomIds.includes(item.symptomId) ? 'selected' : ''}`}
                       onClick={() => toggleSymptom(item.symptomId)}
-                      style={{ textAlign: 'left' }}
+                      aria-pressed={selectedSymptomIds.includes(item.symptomId)}
+                      style={{ textAlign: 'left', minHeight: 44 }}
                     >
                       <span>{selectedSymptomIds.includes(item.symptomId) ? '✓' : '+'}</span>
                       <span>{item.symptom}</span>
@@ -996,7 +1030,7 @@ export const VisitPage: React.FC = () => {
               <div style={{ background: '#fff3cd', color: '#92400e', border: '1px solid #f59e0b', borderRadius: 8, padding: 12, marginBottom: 12 }}>
                 <strong>🏥 ส่งต่อโรงพยาบาล — REFER HOSPITAL</strong>
                 <div style={{ fontSize: '.84rem', marginTop: 4 }}>
-                  เมื่อ Complete Visit ระบบ backend จะสร้าง Notification Log และส่ง Referral Email ไปยังผู้รับที่กำหนดใน CONFIG
+                  ระบบบันทึก Visit แยกจากการส่ง Email หลังบันทึกกรุณาตรวจสอบสถานะ Notification
                 </div>
               </div>
             )}
@@ -1041,7 +1075,7 @@ export const VisitPage: React.FC = () => {
                 : disposition === 'EMERGENCY_TRANSFER'
                   ? 'Complete Emergency Transfer'
                   : disposition === 'REFER_HOSPITAL'
-                    ? 'Complete & Send Referral'
+                    ? 'Complete Referral Visit'
                     : 'บันทึกและปิด Visit'}
             </button>
           </section>
