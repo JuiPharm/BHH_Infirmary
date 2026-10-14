@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from './context/AuthContext';
 import { Header } from './components/Header';
 import { LoginPage } from './pages/LoginPage';
-import { VisitPage } from './pages/VisitPage';
+import { VisitPage } from './features/clinical/VisitPage';
 import { StudentsPage } from './pages/StudentsPage';
 import { StockPage } from './pages/StockPage';
-import { DashboardPage } from './pages/DashboardPage';
+import { DashboardV2Page } from './features/dashboard/DashboardV2Page';
 import { UsersPage } from './pages/UsersPage';
 import { ConfigPage } from './pages/ConfigPage';
 import { InventoryOperationsPage } from './features/inventory/InventoryOperationsPage';
@@ -120,7 +120,7 @@ export const AppContent: React.FC = () => {
           <VisitPage />
         )}
         {currentTab === 'dashboard' && ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) && (
-          <DashboardPage />
+          <DashboardV2Page />
         )}
         {currentTab === 'students' && <StudentsPage />}
         {currentTab === 'stock' && <StockPage />}
@@ -141,7 +141,7 @@ export const AppContent: React.FC = () => {
           marginTop: 'auto'
         }}
       >
-        School Nurse Management System · Bangkok Hospital Hatyai (BHH Infirmary) · Clinical V2 · P3
+        BHH Infirmary · Bangkok Hospital Hatyai · Clinical P4
       </footer>
     </div>
   );
