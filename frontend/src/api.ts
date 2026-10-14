@@ -4,7 +4,7 @@ export const DEFAULT_GAS_URL =
   import.meta.env.VITE_GAS_URL ||
   'https://script.google.com/macros/s/AKfycbwC7zeux5tDqr_C-2AwtllHIFDXkXyvVQ0J7BoI-3u55xQ6vSslP5VxwZCxFKjZmB_h/exec';
 
-export const REQUIRED_API_VERSION = '2.3.0';
+export const REQUIRED_API_VERSION = '2.4.0';
 
 export interface BackendHealth {
   success: boolean;
@@ -66,7 +66,16 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   LOT_STATUS_UNCHANGED: 'Stock Lot อยู่ในสถานะนี้อยู่แล้ว',
   INVALID_COUNT_QTY: 'จำนวนตรวจนับต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป',
   DUPLICATE_COUNT_LINE: 'มี Stock Lot ซ้ำในรายการตรวจนับ',
-  TOO_MANY_COUNT_LINES: 'จำนวนรายการตรวจนับมากเกินขีดจำกัดต่อครั้ง'
+  TOO_MANY_COUNT_LINES: 'จำนวนรายการตรวจนับมากเกินขีดจำกัดต่อครั้ง',
+  RECIPIENT_NOT_FOUND: 'ไม่พบผู้มารับบริการใน Master กรุณาค้นหาใหม่หรือใช้ Free Text Visit',
+  RECIPIENT_NAME_REQUIRED: 'กรุณาระบุชื่อผู้มารับบริการ',
+  INVALID_RECIPIENT_TYPE: 'ประเภทผู้มารับบริการไม่ถูกต้อง',
+  INVALID_SYMPTOM: 'อาการที่เลือกไม่อยู่ใน Symptom Master หรือถูกปิดใช้งาน',
+  INVALID_SYMPTOM_CATEGORY: 'หมวดอาการไม่ถูกต้อง',
+  ALLERGY_STATUS_REQUIRED: 'ก่อนจ่ายยาใน Free Text Visit ต้องระบุสถานะแพ้ยา',
+  ALLERGY_DETAIL_REQUIRED: 'กรณีมีประวัติแพ้ยา กรุณาระบุยา/กลุ่มยา อาการแพ้ และหมายเหตุ',
+  NOTIFICATION_ALREADY_SENT: 'Notification นี้ส่งสำเร็จแล้ว ไม่อนุญาตให้ส่งซ้ำ',
+  INVALID_DATE_RANGE: 'ช่วงวันที่ไม่ถูกต้อง'
 };
 
 export function getErrorMessage(codeOrMsg?: string): string {
@@ -92,7 +101,9 @@ const CACHEABLE_ACTIONS = new Set([
   'getConfig',
   'getUsers',
   'getInventoryIntegrity',
-  'getStockCounts'
+  'getStockCounts',
+  'getSymptoms',
+  'getDashboardV2'
 ]);
 
 const MUTATION_ACTIONS = new Set([
@@ -107,7 +118,9 @@ const MUTATION_ACTIONS = new Set([
   'deactivateUser',
   'updateConfig',
   'updateStockLotStatus',
-  'submitStockCount'
+  'submitStockCount',
+  'importStaffMaster',
+  'retryNotification'
 ]);
 
 export function clearClientCache(actionPrefix?: string): void {
