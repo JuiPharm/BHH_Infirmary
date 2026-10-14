@@ -175,3 +175,66 @@ test('GAS / React API versions remain synchronized',()=>{
   const version=backend.match(/const API_VERSION = '([^']+)'/)[1];
   assert.ok(frontend.includes(`REQUIRED_API_VERSION = '${version}'`));
 });
+
+test('Staff Master rejects spreadsheet formula IDs and escapes text formulas',()=>{
+  const c=makeContext();
+  assert.equal(c.safeImportedSheetText_('=HYPERLINK("x")'), '\'=HYPERLINK("x")');
+  assert.equal(c.safeImportedSheetText_('พยาบาล'), 'พยาบาล');
+  assert.throws(()=>c.importStaffMaster_({rows:[
+    {staffId:'=2+2',fullName:'Unsafe',recipientType:'STAFF'}
+  ]},{role:'ADMIN'}),/INVALID_STAFF_MASTER_ROW/);
+});
+
+test('Staff Master import rolls back preceding updates if a subsequent update fails',()=>{
+  const c=makeContext();
+  const grid=[
+    [...c.HEADERS.STAFF_MASTER],
+    ['001','First','STAFF','A','ACTIVE','old'],
+    ['002','Second','TEACHER','B','ACTIVE','old']
+  ];
+  let failOnce=true;
+  c.getSheet_=()=>({
+    getDataRange:()=>({
+      getValues:()=>grid.map(row=>row.slice()),
+      getDisplayValues:()=>grid.map(row=>row.map(String))
+    }),
+    getLastRow:()=>grid.length,
+    getRange:(row,col,height,width)=>({
+      setValues:(values)=>{
+        if(row === 3 && failOnce){failOnce=false;throw Error('SIMULATED_SHEET_WRITE_FAILURE');}
+        for(let i=0;i<height;i++)grid[row+i-1]=values[i].slice();
+      }
+    })
+  });
+  c.ensureHeaders_=()=>{};
+  c.truncateAfterRow_=(sheet,last)=>{grid.splice(last);};
+  assert.throws(()=>c.importStaffMaster_({rows:[
+    {staffId:'001',fullName:'Changed',recipientType:'STAFF'},
+    {staffId:'002',fullName:'Changed again',recipientType:'TEACHER'}
+  ]},{role:'ADMIN',staffId:'A1'}),/SIMULATED_SHEET_WRITE_FAILURE/);
+  assert.equal(grid[1][1],'First');
+  assert.equal(grid[2][1],'Second');
+});
+
+test('Reconciliation never re-sends historical or future-dated visits',()=>{
+  const c=makeContext();
+  const now=new Date().toISOString().slice(0,10);
+  const sent=[];
+  c.Utilities.formatDate=(value)=>value.toISOString().slice(0,10);
+  c.getTimeZone_=()=> 'UTC';
+  c.getConfigBoolean_=()=>true;
+  c.rows_=(name)=>name==='NOTIFICATION_LOG' ? [] : [
+    {'Visit ID':'Vold',Status:'COMPLETED',Disposition:'REFER_HOSPITAL','Visit Date':'2020-01-01'},
+    {'Visit ID':'Vnew',Status:'COMPLETED',Disposition:'REFER_HOSPITAL','Visit Date':now},
+    {'Visit ID':'Vfuture',Status:'COMPLETED',Disposition:'REFER_HOSPITAL','Visit Date':'2099-01-01'}
+  ];
+  c.triggerReferralNotificationForVisit_=(id)=>{sent.push(id);return {status:'SENT'};};
+  const out=c.reconcileNotifications_({limit:10},{role:'ADMIN',staffId:'A1'});
+  assert.equal(out.data.checked,1);
+  assert.deepEqual(sent,['Vnew']);
+});
+
+test('Retry API follows the success/data contract expected by the frontend',()=>{
+  const source=readFileSync(resolve(root,'backend/Code.gs'),'utf8');
+  assert.match(source,/case 'retryNotification': return \\{success:true,data:retryNotification_/);
+});
