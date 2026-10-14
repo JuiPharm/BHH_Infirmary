@@ -236,5 +236,5 @@ test('Reconciliation never re-sends historical or future-dated visits',()=>{
 
 test('Retry API follows the success/data contract expected by the frontend',()=>{
   const source=readFileSync(resolve(root,'backend/Code.gs'),'utf8');
-  assert.match(source,/case 'retryNotification': return \\{success:true,data:retryNotification_/);
+  assert.match(source,/case 'retryNotification': return \{success:true,data:retryNotification_/);
 });
