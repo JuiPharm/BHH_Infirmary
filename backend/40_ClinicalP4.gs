@@ -6,14 +6,15 @@ const CLINICAL_ALERT_LEVELS = ['NORMAL','CAUTION','URGENT','EMERGENCY'];
 function getSymptoms_(p,s) {
   requireRole_(s,['NURSE','ADMIN','MANAGER','SUPER_ADMIN']);
   const rows = rows_(SHEETS.SYMPTOMS).filter(function(x){
-    return isActive_(x.Active);
+    const category = String(x.Category || '').trim().toUpperCase();
+    return isActive_(x.Active) && SYMPTOM_CATEGORIES.indexOf(category) >= 0;
   }).map(function(x){
     const category = String(x.Category || '').trim().toUpperCase();
     const alert = String(x['Clinical Alert Level'] || 'NORMAL').trim().toUpperCase();
     return {
       symptomId:String(x['Symptom ID'] || '').trim(),
       symptom:String(x.Symptom || '').trim(),
-      category:SYMPTOM_CATEGORIES.indexOf(category) >= 0 ? category : 'OTHER',
+      category:category,
       clinicalAlertLevel:CLINICAL_ALERT_LEVELS.indexOf(alert) >= 0 ? alert : 'NORMAL',
       sortOrder:Number(x['Sort Order']) || 999
     };
@@ -26,7 +27,6 @@ function getSymptoms_(p,s) {
 function seedDefaultSymptoms_() {
   const sh = getSheet_(SHEETS.SYMPTOMS);
   ensureHeaders_(sh,HEADERS.SYMPTOMS);
-  if (sh.getLastRow() > 1) return;
 
   const seed = [
     ['NT001','ไข้','NON_TRAUMA',true,10,'NORMAL'],
@@ -59,12 +59,39 @@ function seedDefaultSymptoms_() {
     ['OT006','เลือดกำเดาไหล','OTHER',true,360,'NORMAL']
   ];
 
-  const t = now_();
-  const values = seed.map(function(x){
-    return [x[0],x[1],x[2],x[3],x[4],x[5],t,'SYSTEM'];
+  // Production-safe migration: preserve every existing symptom row and append
+  // only P4 catalog IDs that are missing. Never overwrite historical/custom rows.
+  const existing = rows_(SHEETS.SYMPTOMS);
+  const existingIds = {};
+  existing.forEach(function(row){
+    const id = String(row['Symptom ID'] || '').trim();
+    if (id) existingIds[id] = true;
   });
-  sh.getRange(2,1,values.length,HEADERS.SYMPTOMS.length).setValues(values);
-  clearCache_(SHEETS.SYMPTOMS);
+
+  const t = now_();
+  const currentHeaders = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
+  const missingRows = seed.filter(function(x){
+    return !existingIds[String(x[0])];
+  }).map(function(x){
+    const obj = {
+      'Symptom ID':x[0],
+      'Symptom':x[1],
+      'Category':x[2],
+      'Active':x[3],
+      'Sort Order':x[4],
+      'Clinical Alert Level':x[5],
+      'Updated At':t,
+      'Updated By':'SYSTEM'
+    };
+    return currentHeaders.map(function(h){
+      return Object.prototype.hasOwnProperty.call(obj,h) ? obj[h] : '';
+    });
+  });
+
+  if (missingRows.length) {
+    sh.getRange(sh.getLastRow()+1,1,missingRows.length,currentHeaders.length).setValues(missingRows);
+    clearCache_(SHEETS.SYMPTOMS);
+  }
 }
 
 function resolveVisitSymptoms_(p) {
