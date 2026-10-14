@@ -18,6 +18,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setTab }) => {
 
   const navItems = [
     { id: 'visit', label: 'รับบริการใหม่', show: ['NURSE', 'ADMIN', 'SUPER_ADMIN'].includes(role) },
+    { id: 'notifications', label: 'แจ้งเตือนส่งต่อ', show: ['NURSE', 'ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) },
     { id: 'dashboard', label: 'แดชบอร์ด', show: ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) },
     { id: 'students', label: 'ประวัตินักเรียน', show: true },
     { id: 'stock', label: 'คลังเวชภัณฑ์', show: true },
