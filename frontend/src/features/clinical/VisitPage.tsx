@@ -98,7 +98,13 @@ export const VisitPage: React.FC = () => {
   const [studentSafetyReviewed, setStudentSafetyReviewed] = useState(false);
 
   const [symptomCatalog, setSymptomCatalog] = useState<SymptomCatalogItem[]>([]);
+  const [loadingSymptoms, setLoadingSymptoms] = useState(false);
+  const [symptomCatalogError, setSymptomCatalogError] = useState('');
   const [selectedSymptomIds, setSelectedSymptomIds] = useState<string[]>([]);
+  const [symptomSearch, setSymptomSearch] = useState('');
+  const [expandedSymptomCategories, setExpandedSymptomCategories] = useState<SymptomCategory[]>(['NON_TRAUMA']);
+  const symptomSearchInputRef = useRef<HTMLInputElement>(null);
+  const selectedSymptomButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [otherSymptom, setOtherSymptom] = useState('');
   const [assessment, setAssessment] = useState('');
   const [note, setNote] = useState('');
@@ -122,14 +128,24 @@ export const VisitPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const pendingVisitRef = useRef<{ fingerprint: string; id: string } | null>(null);
 
+  const loadSymptomCatalog = async (token: string) => {
+    setLoadingSymptoms(true);
+    setSymptomCatalogError('');
+    try {
+      const data = await getSymptomCatalog(token);
+      setSymptomCatalog(data || []);
+    } catch (err: any) {
+      console.error('Failed to load symptom catalog', err);
+      setSymptomCatalogError(err?.message || 'ไม่สามารถเชื่อมต่อ Symptom Master ได้');
+      Swal.fire('โหลด Symptom Master ไม่สำเร็จ', err?.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
+    } finally {
+      setLoadingSymptoms(false);
+    }
+  };
+
   useEffect(() => {
     if (!session?.token) return;
-    getSymptomCatalog(session.token)
-      .then((data) => setSymptomCatalog(data || []))
-      .catch((err) => {
-        console.error('Failed to load symptom catalog', err);
-        Swal.fire('โหลด Symptom Master ไม่สำเร็จ', err.message, 'error');
-      });
+    loadSymptomCatalog(session.token);
     loadItems();
   }, [session?.token]);
 
@@ -215,6 +231,38 @@ export const VisitPage: React.FC = () => {
     return grouped;
   }, [symptomCatalog]);
 
+  const normalizedSymptomSearch = symptomSearch.trim().toLocaleLowerCase();
+  const filteredSymptomsByCategory = useMemo(() => {
+    const filtered: Record<SymptomCategory, SymptomCatalogItem[]> = {
+      NON_TRAUMA: [],
+      TRAUMA: [],
+      OTHER: []
+    };
+    (Object.keys(symptomsByCategory) as SymptomCategory[]).forEach((category) => {
+      filtered[category] = symptomsByCategory[category].filter((item) => {
+        if (!normalizedSymptomSearch) return true;
+        return (
+          item.symptom.toLocaleLowerCase().includes(normalizedSymptomSearch) ||
+          CATEGORY_LABELS[category].toLocaleLowerCase().includes(normalizedSymptomSearch)
+        );
+      });
+    });
+    return filtered;
+  }, [symptomsByCategory, normalizedSymptomSearch]);
+
+  useEffect(() => {
+    if (!normalizedSymptomSearch) return;
+    const matches = (Object.keys(filteredSymptomsByCategory) as SymptomCategory[])
+      .filter((category) => filteredSymptomsByCategory[category].length > 0);
+    setExpandedSymptomCategories((current) => Array.from(new Set([...current, ...matches])));
+  }, [filteredSymptomsByCategory, normalizedSymptomSearch]);
+
+  const symptomSearchResultCount = useMemo(
+    () => (Object.values(filteredSymptomsByCategory) as SymptomCatalogItem[][])
+      .reduce((count, itemsInCategory) => count + itemsInCategory.length, 0),
+    [filteredSymptomsByCategory]
+  );
+
   const derivedCategory = useMemo(
     () => deriveVisitCategory(symptomCatalog, selectedSymptomIds),
     [symptomCatalog, selectedSymptomIds]
@@ -247,6 +295,25 @@ export const VisitPage: React.FC = () => {
     setSelectedSymptomIds((current) =>
       current.includes(id) ? current.filter((x) => x !== id) : [...current, id]
     );
+  };
+
+  const removeSelectedSymptom = (id: string) => {
+    const remaining = selectedSymptoms.filter((item) => item.symptomId !== id);
+    toggleSymptom(id);
+    window.requestAnimationFrame(() => {
+      const nextSelected = remaining[0];
+      if (nextSelected && selectedSymptomButtonRefs.current[nextSelected.symptomId]) {
+        selectedSymptomButtonRefs.current[nextSelected.symptomId]?.focus();
+      } else {
+        symptomSearchInputRef.current?.focus();
+      }
+    });
+  };
+
+  const toggleSymptomCategory = (category: SymptomCategory) => {
+    setExpandedSymptomCategories((current) => current.includes(category)
+      ? current.filter((item) => item !== category)
+      : [...current, category]);
   };
 
   const toggleIntervention = (code: string) => {
@@ -351,6 +418,8 @@ export const VisitPage: React.FC = () => {
   const resetForm = () => {
     clearRecipient();
     setSelectedSymptomIds([]);
+    setSymptomSearch('');
+    setExpandedSymptomCategories(['NON_TRAUMA']);
     setOtherSymptom('');
     setAssessment('');
     setNote('');
@@ -887,51 +956,159 @@ export const VisitPage: React.FC = () => {
           <section className="card">
             <div className="card-header">
               <span className="card-title">2. Symptom Classification</span>
-              <span style={{ fontSize: '.8rem', color: '#64748b' }}>
-                Derived Category: <strong>{derivedCategory || '—'}</strong>
+              <span className="symptom-derived-category">
+                Visit Category: <strong>{derivedCategory || '—'}</strong>
               </span>
             </div>
 
-            {(['NON_TRAUMA','TRAUMA','OTHER'] as SymptomCategory[]).map((category) => (
-              <div key={category} style={{ marginBottom: 14 }}>
-                <div style={{ fontWeight: 700, color: '#0b1f3a', marginBottom: 7 }}>
-                  {CATEGORY_LABELS[category]}
+            <div className="symptom-search-wrap">
+              <label className="form-label" htmlFor="symptom-search">ค้นหาอาการ</label>
+              <div className="symptom-search-control">
+                <input
+                  id="symptom-search"
+                  className="form-control"
+                  type="search"
+                  ref={symptomSearchInputRef}
+                  value={symptomSearch}
+                  onChange={(event) => setSymptomSearch(event.target.value)}
+                  placeholder="ค้นหาอาการ เช่น ไข้ บาดแผล ปวดท้อง"
+                  aria-describedby="symptom-search-help"
+                />
+                {symptomSearch && (
+                  <button
+                    type="button"
+                    className="symptom-clear-search"
+                    onClick={() => setSymptomSearch('')}
+                    aria-label="ล้างคำค้นหาอาการ"
+                  >
+                    ล้าง
+                  </button>
+                )}
+              </div>
+              <p id="symptom-search-help" className="symptom-search-help">
+                ค้นหาได้ทุกหมวด และเลือกอาการได้มากกว่าหนึ่งรายการ
+              </p>
+            </div>
+
+            {selectedSymptoms.length > 0 && (
+              <div className="symptom-selected-summary" aria-label="อาการที่เลือก">
+                <div className="symptom-selected-heading">
+                  <strong>อาการที่เลือก</strong>
+                  <span>{selectedSymptoms.length} รายการ</span>
                 </div>
-                <div className="symptom-grid">
-                  {symptomsByCategory[category].map((item) => (
+                <div className="symptom-selected-list">
+                  {selectedSymptoms.map((item) => (
                     <button
                       key={item.symptomId}
                       type="button"
-                      className={`symptom-chip ${selectedSymptomIds.includes(item.symptomId) ? 'selected' : ''}`}
-                      onClick={() => toggleSymptom(item.symptomId)}
-                      aria-pressed={selectedSymptomIds.includes(item.symptomId)}
-                      style={{ textAlign: 'left', minHeight: 44 }}
+                      className="symptom-selected-chip"
+                      ref={(element) => { selectedSymptomButtonRefs.current[item.symptomId] = element; }}
+                      onClick={() => removeSelectedSymptom(item.symptomId)}
+                      aria-label={`นำ ${item.symptom} ออกจากรายการอาการที่เลือก`}
                     >
-                      <span>{selectedSymptomIds.includes(item.symptomId) ? '✓' : '+'}</span>
-                      <span>{item.symptom}</span>
+                      <span>{item.symptom}</span><span aria-hidden="true">×</span>
                     </button>
                   ))}
                 </div>
               </div>
-            ))}
+            )}
 
-            {clinicalAlert !== 'NORMAL' && (
-              <div
-                style={{
-                  margin: '8px 0 14px',
-                  padding: 12,
-                  borderRadius: 8,
-                  background: clinicalAlert === 'EMERGENCY' ? '#fdecec' : '#fff3cd',
-                  color: clinicalAlert === 'EMERGENCY' ? '#991b1b' : '#92400e',
-                  border: `1px solid ${clinicalAlert === 'EMERGENCY' ? '#b91c1c' : '#f59e0b'}`
-                }}
-              >
-                <strong>Clinical Alert: {clinicalAlert}</strong>
-                <div style={{ fontSize: '.82rem', marginTop: 4 }}>
-                  เป็น Warning จาก Symptom Master เพื่อให้ผู้ใช้ประเมินต่อ ไม่ใช่การวินิจฉัยและไม่ใช่คำสั่งส่งต่ออัตโนมัติ
-                </div>
+            <div
+              className={`clinical-alert-banner clinical-alert-${clinicalAlert.toLowerCase()}`}
+              role={clinicalAlert === 'EMERGENCY' ? 'alert' : 'status'}
+              aria-live={clinicalAlert === 'EMERGENCY' ? 'assertive' : 'polite'}
+            >
+              <strong>Clinical Alert: {clinicalAlert}</strong>
+              <span>
+                {clinicalAlert === 'NORMAL'
+                  ? 'ยังไม่มีอาการที่กำหนดระดับเตือนใน Symptom Master'
+                  : 'โปรดประเมินอาการตามดุลยพินิจทางคลินิก การเตือนนี้ไม่ใช่การวินิจฉัยหรือคำสั่งส่งต่ออัตโนมัติ'}
+              </span>
+            </div>
+
+            {symptomCatalog.length > 0 && <div className="symptom-category-list">
+              {(['NON_TRAUMA','TRAUMA','OTHER'] as SymptomCategory[]).map((category) => {
+                const matches = filteredSymptomsByCategory[category];
+                const selectedCount = symptomsByCategory[category]
+                  .filter((item) => selectedSymptomIds.includes(item.symptomId)).length;
+                const isExpanded = expandedSymptomCategories.includes(category);
+                const panelId = `symptom-panel-${category.toLowerCase()}`;
+                const triggerId = `symptom-trigger-${category.toLowerCase()}`;
+                if (normalizedSymptomSearch && matches.length === 0) return null;
+                return (
+                  <section className="symptom-category" key={category}>
+                    <h3 className="symptom-category-heading">
+                      <button
+                        type="button"
+                        id={triggerId}
+                        className="symptom-category-toggle"
+                        aria-expanded={isExpanded}
+                        aria-controls={panelId}
+                        onClick={() => toggleSymptomCategory(category)}
+                      >
+                        <span className="symptom-category-title">
+                          <span aria-hidden="true" className="symptom-chevron">{isExpanded ? '⌄' : '›'}</span>
+                          {CATEGORY_LABELS[category]}
+                        </span>
+                        <span className="symptom-category-meta">
+                          {selectedCount > 0 && <span className="symptom-selected-count">เลือก {selectedCount}</span>}
+                          <span>{normalizedSymptomSearch ? `${matches.length} ผลลัพธ์` : `${symptomsByCategory[category].length} อาการ`}</span>
+                        </span>
+                      </button>
+                    </h3>
+                    <div
+                      id={panelId}
+                      className="symptom-category-panel"
+                      role="region"
+                      aria-labelledby={triggerId}
+                      hidden={!isExpanded}
+                    >
+                      <div className="symptom-grid">
+                        {matches.map((item) => {
+                          const selected = selectedSymptomIds.includes(item.symptomId);
+                          return (
+                            <button
+                              key={item.symptomId}
+                              type="button"
+                              className={`symptom-chip ${selected ? 'selected' : ''}`}
+                              onClick={() => toggleSymptom(item.symptomId)}
+                              aria-pressed={selected}
+                            >
+                              <span aria-hidden="true">{selected ? '✓' : '+'}</span>
+                              <span>{item.symptom}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </section>
+                );
+              })}
+            </div>}
+
+            {!loadingSymptoms && symptomCatalog.length === 0 && (
+              <div className="symptom-empty-state" role="status">
+                <strong>{symptomCatalogError ? 'โหลดรายการอาการไม่สำเร็จ' : 'ยังไม่มีรายการอาการใน Symptom Master'}</strong>
+                <span>{symptomCatalogError || 'ตรวจสอบการตั้งค่า Symptom Master หรือแจ้งผู้ดูแลระบบ'}</span>
+                <button
+                  type="button"
+                  className="symptom-retry-button"
+                  onClick={() => session?.token && loadSymptomCatalog(session.token)}
+                  disabled={!session?.token}
+                >
+                  ลองโหลดอีกครั้ง
+                </button>
               </div>
             )}
+
+            {normalizedSymptomSearch && !loadingSymptoms && symptomCatalog.length > 0 && symptomSearchResultCount === 0 && (
+              <div className="symptom-empty-state" role="status">
+                <strong>ไม่พบอาการที่ตรงกับ “{symptomSearch.trim()}”</strong>
+                <span>ลองใช้คำค้นหาอื่น หรือล้างคำค้นหาเพื่อดูอาการทั้งหมด</span>
+              </div>
+            )}
+
+            {loadingSymptoms && <p className="symptom-loading" role="status">กำลังโหลด Symptom Master…</p>}
 
             <div className="form-group">
               <label className="form-label">รายละเอียดอาการเพิ่มเติม (ไม่ใช้จัดหมวด)</label>
