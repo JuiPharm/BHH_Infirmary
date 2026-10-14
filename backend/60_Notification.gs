@@ -183,10 +183,11 @@ function reconcileNotifications_(p,s) {
   // first time. Recovery is limited to visits from the last 72 hours.
   const cutoff = Utilities.formatDate(new Date(Date.now()-72*3600000),
     getTimeZone_(),'yyyy-MM-dd');
+  const today = Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd');
   const missing = rows_(SHEETS.DISPENSE_HEADER).filter(function(v) {
     const cfg = notificationConfigForDisposition_(v.Disposition);
     const date = String(v['Visit Date'] || '').trim();
-    return cfg && date >= cutoff &&
+    return cfg && date >= cutoff && date <= today &&
       String(v.Status || '').toUpperCase() === 'COMPLETED' &&
       getConfigBoolean_(cfg.enabledKey,false) &&
       !known[String(v['Visit ID'] || '')+':'+cfg.type];
