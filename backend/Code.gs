@@ -486,6 +486,8 @@ function submitVisit_(p,s) {
   let detailLastRow = null;
   let txnLastRow = null;
   let stockWritten = false;
+  let completedResult = null;
+  let shouldNotify = false;
 
   try {
     const ss = getSpreadsheet_();
@@ -687,17 +689,8 @@ function submitVisit_(p,s) {
       return {itemCode:code,dispensedQty:requestedByItem[code]};
     });
 
-    let notification = null;
-    if (disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER') {
-      try {
-        notification = triggerReferralNotificationForVisit_(visitId,s);
-      } catch (notifyErr) {
-        notification = {status:'FAILED',error:String(notifyErr && notifyErr.message || notifyErr)};
-        auditSystem_('NOTIFICATION_TRIGGER','NOTIFICATION_LOG',visitId,'FAILED');
-      }
-    }
-
-    return {success:true,data:{
+    shouldNotify = disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER';
+    completedResult = {success:true,data:{
       visitId:visitId,
       items:resultItems,
       disposition:disposition,
@@ -705,7 +698,7 @@ function submitVisit_(p,s) {
       recipientType:recipient.recipientType,
       derivedVisitCategory:symptomSelection.derivedCategory,
       clinicalAlertLevel:symptomSelection.clinicalAlertLevel,
-      notification:notification
+      notification:null
     }};
   } catch (err) {
     // Google Sheets has no native multi-sheet transaction. If any write after stock
@@ -730,6 +723,25 @@ function submitVisit_(p,s) {
   } finally {
     lock.releaseLock();
   }
+
+  // Notification is intentionally outside ScriptLock and outside the clinical/stock
+  // rollback scope. Mail latency or failure can never roll back a completed visit.
+  if (completedResult && shouldNotify) {
+    try {
+      completedResult.data.notification = triggerReferralNotificationForVisit_(
+        completedResult.data.visitId,
+        s
+      );
+    } catch (notifyErr) {
+      completedResult.data.notification = {
+        status:'FAILED',
+        error:String(notifyErr && notifyErr.message || notifyErr)
+      };
+      auditSystem_('NOTIFICATION_TRIGGER','NOTIFICATION_LOG',completedResult.data.visitId,'FAILED');
+    }
+  }
+
+  return completedResult;
 }
 
 /* =========================
