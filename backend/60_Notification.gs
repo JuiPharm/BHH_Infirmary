@@ -109,14 +109,28 @@ function sendNotificationById_(notificationId,s,isRetry) {
     lock.releaseLock();
   }
 
-  const visit = getVisitForNotification_(String(log['Visit ID'] || ''));
-  const type = String(log['Notification Type'] || '').toUpperCase();
-  const prefixKey = type === 'EMERGENCY_TRANSFER'
-    ? 'EMERGENCY_EMAIL_SUBJECT_PREFIX'
-    : 'REFERRAL_EMAIL_SUBJECT_PREFIX';
-  const message = buildReferralEmail_(visit,type,prefixKey);
-  const to = normalizeEmailList_(String(log.Recipient || ''));
-  const cc = normalizeEmailList_(String(log.CC || ''));
+  let message;
+  let to;
+  let cc;
+  try {
+    const visit = getVisitForNotification_(String(log['Visit ID'] || ''));
+    const type = String(log['Notification Type'] || '').toUpperCase();
+    const cfg = notificationConfigForDisposition_(visit.Disposition);
+    if (!cfg || cfg.type !== type) throw new Error('INVALID_NOTIFICATION_VISIT');
+    message = buildReferralEmail_(visit,type,cfg.prefixKey);
+    to = normalizeEmailList_(String(log.Recipient || ''));
+    cc = normalizeEmailList_(String(log.CC || ''));
+    if (!to.length && isRetry) {
+      // Original failure may have been due to missing CONFIG recipient.
+      to = normalizeEmailList_(getConfigValue_(cfg.toKey,''));
+      cc = normalizeEmailList_(getConfigValue_(cfg.ccKey,''));
+      updateNotificationLog_(notificationId,{Recipient:to.join(','),CC:cc.join(',')});
+    }
+  } catch (err) {
+    const reason = limitedText_(String(err && err.message || err),1000);
+    try { updateNotificationLog_(notificationId,{Status:'FAILED','Error Message':reason}); } catch (_) {}
+    return {notificationId:notificationId,status:'FAILED',error:reason};
+  }
 
   if (!to.length) {
     updateNotificationLog_(notificationId,{
