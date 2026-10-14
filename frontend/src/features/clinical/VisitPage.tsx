@@ -584,10 +584,10 @@ export const VisitPage: React.FC = () => {
     max?: number
   ) => (
     <div className="form-group">
-      <label className="form-label" htmlFor={'vital-' + label.replace(/\\s+/g, '-')}>{label}</label>
+      <label className="form-label" htmlFor={'vital-' + label.replace(/\s+/g, '-')}>{label}</label>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <input
-          id={'vital-' + label.replace(/\\s+/g, '-')}
+          id={'vital-' + label.replace(/\s+/g, '-')}
           className="form-control"
           type="number"
           step="any"
