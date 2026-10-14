@@ -7,7 +7,7 @@ P4 must not be released directly to production until:
 1. Frontend CI tests pass.
 2. Apps Script syntax gate passes.
 3. Senior review is complete.
-4. Apps Script is updated to API `2.4.0`.
+4. Apps Script is updated to API `2.4.1` and `backend/tests/p4Safety.test.mjs` passes.
 5. `setupSystem()` has been run against the target Google Sheet.
 6. Live UAT confirms visit, stock, referral notification and dashboard behavior.
 7. Only then merge the P4 PR to `main`.
@@ -85,9 +85,10 @@ Recommended rollout:
 1. Set authorized TO/CC recipients first.
 2. Send UAT visits to confirm HTML rendering in Gmail and the organization's real email client.
 3. Verify `NOTIFICATION_LOG` shows `SENT`, `Attempt Count` and `Sent At`.
-4. Verify a forced mail failure leaves Visit = `COMPLETED` and Notification = `FAILED`.
-5. Retry the failed notification and confirm no duplicate is sent after status becomes `SENT`.
-6. Enable production delivery only after those checks.
+4. Verify a missing recipient leaves Visit = `COMPLETED` and Notification = `FAILED`, without stock rollback.
+5. Configure the missing recipient, retry the definitively `FAILED` entry and confirm no duplicate send after `SENT`. If MailApp throws or success logging fails, `UNKNOWN` / `SENDING` must NOT be retried without independent operator verification.
+6. Test authorized notification outbox page and manual reconciliation restricted to 72 hours; do not send historical referrals.
+7. Enable production delivery only after those checks.
 
 Never hard-code email recipients in Apps Script.
 
@@ -96,17 +97,18 @@ Never hard-code email recipients in Apps Script.
 After backend migration:
 
 1. Deploy Apps Script as a new Web App version using the same production execution/access policy.
-2. Confirm GET health reports `apiVersion: "2.4.0"`.
+2. Confirm GET health reports `apiVersion: "2.4.1"`.
 3. Confirm the existing Web App URL remains the value used by `VITE_GAS_URL`.
 4. Run live UAT before merging frontend to `main`.
 
-The P4 frontend intentionally requires API `2.4.0`; it will block clinical use when an older backend is detected.
+The P4 frontend intentionally requires API `2.4.1`; it will block clinical use when an older backend is detected.
 
 ## Frontend
 
 GitHub Pages deploys only after merge to `main`. Before merge, CI runs:
 
 - Apps Script syntax check
+- Node Apps Script behavior regression tests
 - `npm ci`
 - Vitest
 - TypeScript + Vite production build
