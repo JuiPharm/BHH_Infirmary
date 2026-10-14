@@ -4,7 +4,7 @@ export const DEFAULT_GAS_URL =
   import.meta.env.VITE_GAS_URL ||
   'https://script.google.com/macros/s/AKfycbwC7zeux5tDqr_C-2AwtllHIFDXkXyvVQ0J7BoI-3u55xQ6vSslP5VxwZCxFKjZmB_h/exec';
 
-export const REQUIRED_API_VERSION = '2.4.0';
+export const REQUIRED_API_VERSION = '2.4.1';
 
 export interface BackendHealth {
   success: boolean;
@@ -75,7 +75,13 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   ALLERGY_STATUS_REQUIRED: 'ก่อนจ่ายยาใน Free Text Visit ต้องระบุสถานะแพ้ยา',
   ALLERGY_DETAIL_REQUIRED: 'กรณีมีประวัติแพ้ยา กรุณาระบุยา/กลุ่มยา อาการแพ้ และหมายเหตุ',
   NOTIFICATION_ALREADY_SENT: 'Notification นี้ส่งสำเร็จแล้ว ไม่อนุญาตให้ส่งซ้ำ',
-  INVALID_DATE_RANGE: 'ช่วงวันที่ไม่ถูกต้อง'
+  INVALID_DATE_RANGE: 'ช่วงวันที่ไม่ถูกต้อง',
+  STUDENT_SAFETY_REVIEW_REQUIRED: 'กรุณาตรวจสอบข้อมูลแพ้ยานักเรียนอีกครั้ง เพราะข้อมูลล่าสุดอาจมีการเปลี่ยนแปลง',
+  NOTIFICATION_STATUS_UNCERTAIN: 'สถานะ Email ไม่แน่นอน ต้องตรวจสอบผู้รับก่อนส่งซ้ำ',
+  NOTIFICATION_RETRY_NOT_ALLOWED: 'ไม่สามารถ Retry Notification ที่ไม่มีสถานะ FAILED ได้',
+  NOTIFICATION_CONFIRMATION_REQUIRED: 'กรุณายืนยันว่าได้ตรวจสอบและไม่มี Email ส่งถึงผู้รับจริง',
+  DUPLICATE_STAFF_ID_IN_IMPORT: 'มี Staff ID ซ้ำในไฟล์ Import',
+  STAFF_MASTER_IMPORT_ROLLBACK_FAILED: 'ไม่สามารถย้อนคืน Staff Master ได้ครบ กรุณาตรวจสอบข้อมูลและติดต่อผู้ดูแลระบบ'
 };
 
 export function getErrorMessage(codeOrMsg?: string): string {
@@ -120,7 +126,10 @@ const MUTATION_ACTIONS = new Set([
   'updateStockLotStatus',
   'submitStockCount',
   'importStaffMaster',
-  'retryNotification'
+  'retryNotification',
+  'reconcileNotifications',
+  'resolveUncertainNotification',
+  'submitVisit'
 ]);
 
 export function clearClientCache(actionPrefix?: string): void {
