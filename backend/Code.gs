@@ -94,7 +94,7 @@ function route_(r) {
     case 'getConfig': return getConfig_(session);
     case 'updateConfig': return updateConfig_(r.payload || {}, session);
     case 'getNotificationLog': return getNotificationLog_(r.payload || {}, session);
-    case 'retryNotification': return retryNotification_(r.payload || {}, session);
+    case 'retryNotification': return {success:true,data:retryNotification_(r.payload || {}, session)};
     case 'reconcileNotifications': return reconcileNotifications_(r.payload || {}, session);
     case 'resolveUncertainNotification': return resolveUncertainNotification_(r.payload || {}, session);
     default: throw new Error('UNKNOWN_ACTION');
