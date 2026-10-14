@@ -146,6 +146,9 @@ function dashboardRecipientKey_(visit) {
   const id = String(visit && (visit['Recipient ID'] || visit['Student ID']) || '').trim();
   const name = String(visit && visit['Recipient Name'] || '').trim().toLowerCase();
   if (id) return (source || dashboardRecipientType_(visit))+':'+id;
+  // Free Text without a stable ID cannot be safely deduplicated by name.
+  // Count each such visit separately rather than merging different people.
+  if (source === 'FREE_TEXT') return 'FREE_TEXT:VISIT:'+String(visit['Visit ID'] || '');
   return name ? (source || 'LEGACY')+':NAME:'+name : '';
 }
 
