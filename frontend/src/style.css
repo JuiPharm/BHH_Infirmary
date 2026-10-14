@@ -653,7 +653,7 @@ textarea.form-control {
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1280px) {
   .nav-links, .user-panel {
     display: none;
   }
