@@ -1,25 +1,28 @@
 const SHEETS = {
-  CONFIG:'CONFIG', USERS:'USERS', STUDENTS:'STUDENTS', ITEM_MASTER:'ITEM_MASTER',
+  CONFIG:'CONFIG', USERS:'USERS', STUDENTS:'STUDENTS', STAFF_MASTER:'STAFF_MASTER', ITEM_MASTER:'ITEM_MASTER',
   STOCK_LOT:'STOCK_LOT', DISPENSE_HEADER:'DISPENSE_HEADER', DISPENSE_ITEMS:'DISPENSE_ITEMS',
-  STOCK_TRANSACTION:'STOCK_TRANSACTION', STOCK_COUNT:'STOCK_COUNT', SYMPTOMS:'SYMPTOMS', AUDIT_LOG:'AUDIT_LOG'
+  STOCK_TRANSACTION:'STOCK_TRANSACTION', STOCK_COUNT:'STOCK_COUNT', SYMPTOMS:'SYMPTOMS',
+  NOTIFICATION_LOG:'NOTIFICATION_LOG', AUDIT_LOG:'AUDIT_LOG'
 };
 
 const HEADERS = {
   CONFIG:['Config Key','Config Value','Data Type','Description','Active','Updated At','Updated By'],
   USERS:['Staff ID','Name','Role','Password Hash','Active','Last Login','Created At','Updated At'],
   STUDENTS:['Student ID','First Name','Last Name','Full Name','Grade','Class','Gender','Status','Updated At','Drug Allergy','Food Allergy','Chronic Diseases','Asthma','Epilepsy','Diabetes','Special Condition','Emergency Contact Name','Emergency Contact Relation','Emergency Contact Phone','Safety Updated At','Safety Updated By'],
+  STAFF_MASTER:['Staff ID','Full Name','Recipient Type','Department','Status','Updated At'],
   ITEM_MASTER:['Item Code','Item Type','Generic Name','Trade Name','QTY','Unit','Minimum Stock','Maximum Stock','Unit Cost','Active/Inactive'],
   STOCK_LOT:['Stock Lot ID','Item Code','Lot Number','Expiry Date','Received Date','Received Qty','Current Qty','Unit Cost','Supplier','Status'],
-  DISPENSE_HEADER:['Visit ID','Student ID','Visit Date','Visit Time','Symptoms','Other Symptom','Note','Staff ID','Status','Created At','Client Transaction ID','Temperature','BP Systolic','BP Diastolic','Pulse','Respiratory Rate','SpO2','Weight','Assessment','Interventions','Disposition','Outcome Note','Completed At'],
+  DISPENSE_HEADER:['Visit ID','Student ID','Visit Date','Visit Time','Symptoms','Other Symptom','Note','Staff ID','Status','Created At','Client Transaction ID','Temperature','BP Systolic','BP Diastolic','Pulse','Respiratory Rate','SpO2','Weight','Assessment','Interventions','Disposition','Outcome Note','Completed At','Recipient ID','Recipient Name','Recipient Type','Recipient Department/Class','Recipient Source','Recipient Contact','Drug Allergy Status','Drug Allergy Drug/Group','Drug Allergy Reaction','Drug Allergy Note','Symptom IDs','Symptom Categories','Derived Visit Category','Clinical Alert Level'],
   DISPENSE_ITEMS:['Dispense Item ID','Visit ID','Item Code','Item Type','Item Name','Qty','Unit','Created At'],
   STOCK_TRANSACTION:['Transaction ID','Transaction Type','Reference ID','Item Code','Stock Lot ID','Qty','Before Qty','After Qty','Unit Cost','Reason','Staff ID','Timestamp'],
   STOCK_COUNT:['Count ID','Count Line ID','Count Date','Stock Lot ID','Item Code','System Qty','Counted Qty','Variance','Reason','Staff ID','Created At'],
-  SYMPTOMS:['Symptom ID','Symptom','Category','Active'],
+  SYMPTOMS:['Symptom ID','Symptom','Category','Active','Sort Order','Clinical Alert Level','Updated At','Updated By'],
+  NOTIFICATION_LOG:['Notification ID','Visit ID','Notification Type','Channel','Recipient','CC','Subject','Status','Attempt Count','Created At','Sent At','Error Message','Staff ID'],
   AUDIT_LOG:['Log ID','Timestamp','Staff ID','Action','Module','Reference ID','Result','Client Info','User Agent']
 };
 
 const ROLES = ['NURSE','ADMIN','MANAGER','SUPER_ADMIN'];
-const API_VERSION = '2.3.0';
+const API_VERSION = '2.4.1';
 
 function doGet(e) {
   return out_({success:true,service:'School Nurse System API',apiVersion:API_VERSION,timestamp:now_()});
@@ -51,11 +54,13 @@ function route_(r) {
 
   switch (action) {
     case 'getSession': return {success:true,data:session};
+    case 'searchRecipients': return searchRecipients_(r.payload || {}, session);
     case 'searchStudents': return searchStudents_(r.payload || {});
     case 'getStudent': return getStudent_(r.payload || {});
     case 'getStudentSafetyProfile': return getStudentSafetyProfile_(r.payload || {}, session);
     case 'updateStudentSafetyProfile': return updateStudentSafetyProfile_(r.payload || {}, session);
     case 'getStudentHistory': return getStudentHistory_(r.payload || {}, session);
+    case 'getSymptoms': return getSymptoms_(r.payload || {}, session);
     case 'getItems': return getItems_(r.payload || {});
     case 'submitDispense': return submitVisit_(r.payload || {}, session);
     case 'submitVisit': return submitVisit_(r.payload || {}, session);
@@ -71,6 +76,7 @@ function route_(r) {
     case 'submitStockCount': return submitStockCount_(r.payload || {}, session);
     case 'getStockCounts': return getStockCounts_(r.payload || {}, session);
     case 'getDashboardData': return getDashboardData_(r.payload || {}, session);
+    case 'getDashboardV2': return getDashboardV2_(r.payload || {}, session);
     case 'getDashboardSummary': return getDashboardSummary_(session);
     case 'getVisitTrend': return getVisitTrend_(r.payload || {}, session);
     case 'getTopSymptoms': return getTopSymptoms_(r.payload || {}, session);
@@ -83,9 +89,14 @@ function route_(r) {
     case 'deactivateUser': return deactivateUser_(r.payload || {}, session);
     case 'resetPassword': return resetPassword_(r.payload || {}, session);
     case 'importStudents': return importStudents_(r.payload || {}, session);
+    case 'importStaffMaster': return importStaffMaster_(r.payload || {}, session);
     case 'importItems': return importItems_(r.payload || {}, session);
     case 'getConfig': return getConfig_(session);
     case 'updateConfig': return updateConfig_(r.payload || {}, session);
+    case 'getNotificationLog': return getNotificationLog_(r.payload || {}, session);
+    case 'retryNotification': return {success:true,data:retryNotification_(r.payload || {}, session)};
+    case 'reconcileNotifications': return reconcileNotifications_(r.payload || {}, session);
+    case 'resolveUncertainNotification': return resolveUncertainNotification_(r.payload || {}, session);
     default: throw new Error('UNKNOWN_ACTION');
   }
 }
@@ -106,27 +117,37 @@ function setupSystem() {
     ensureHeaders_(sh, HEADERS[name]);
   });
   setDefaultConfigs_();
+  seedDefaultSymptoms_();
   return {success:true,message:'System schema ready',spreadsheetId:ss.getId()};
 }
 
 function setDefaultConfigs_() {
   const sh = getSheet_(SHEETS.CONFIG);
   const existing = rows_(SHEETS.CONFIG);
-  const keys = {
-    LOW_STOCK_EMAIL_ENABLED:'false',
-    LOW_STOCK_EMAIL:'',
-    EXPIRY_ALERT_DAYS:'90',
-    MONTHLY_DRUG_BUDGET:'0',
-    MONTHLY_SUPPLY_BUDGET:'0'
-  };
+  const defaults = [
+    ['LOW_STOCK_EMAIL_ENABLED','false','BOOLEAN','Legacy low-stock email switch'],
+    ['LOW_STOCK_EMAIL','','TEXT','Legacy low-stock email recipient'],
+    ['EXPIRY_ALERT_DAYS','90','NUMBER','Expiry alert horizon in days'],
+    ['MONTHLY_DRUG_BUDGET','0','NUMBER','Monthly drug budget'],
+    ['MONTHLY_SUPPLY_BUDGET','0','NUMBER','Monthly medical supply budget'],
+    ['REFERRAL_EMAIL_ENABLED','false','BOOLEAN','Enable REFER_HOSPITAL email notification'],
+    ['REFERRAL_EMAIL_TO','','TEXT','Authorized referral notification recipients'],
+    ['REFERRAL_EMAIL_CC','','TEXT','Authorized referral notification CC recipients'],
+    ['EMERGENCY_EMAIL_ENABLED','false','BOOLEAN','Enable EMERGENCY_TRANSFER email notification'],
+    ['EMERGENCY_EMAIL_TO','','TEXT','Authorized emergency notification recipients'],
+    ['EMERGENCY_EMAIL_CC','','TEXT','Authorized emergency notification CC recipients'],
+    ['NOTIFICATION_FROM_NAME','BHH Infirmary','TEXT','Display name for automated notification email'],
+    ['REFERRAL_EMAIL_SUBJECT_PREFIX','[BHH Infirmary] Refer Hospital','TEXT','Referral email subject prefix'],
+    ['EMERGENCY_EMAIL_SUBJECT_PREFIX','[URGENT][BHH Infirmary] Emergency Transfer','TEXT','Emergency email subject prefix']
+  ];
   const existingKeys = {};
   existing.forEach(function(r){ existingKeys[String(r['Config Key'])] = true; });
-  Object.keys(keys).forEach(function(k){
-    if (!existingKeys[k]) {
-      sh.appendRow([k,keys[k],k.indexOf('BUDGET')>=0?'NUMBER':(k.indexOf('DAYS')>=0?'NUMBER':'BOOLEAN'),
-        '',true,now_(),'SYSTEM']);
+  defaults.forEach(function(row){
+    if (!existingKeys[row[0]]) {
+      sh.appendRow([row[0],row[1],row[2],row[3],true,now_(),'SYSTEM']);
     }
   });
+  clearCache_(SHEETS.CONFIG);
 }
 
 /*
@@ -428,10 +449,12 @@ function submitDispense_(p,s) {
 function submitVisit_(p,s) {
   if (!['NURSE','ADMIN','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
 
-  const studentId = String(p.studentId || '').trim();
+  const recipient = resolveRecipientForVisit_(p);
+  const studentId = recipient.recipientSource === 'STUDENT_MASTER' ? recipient.recipientId : '';
   const clientTx = String(p.clientTransactionId || '').trim();
   const items = Array.isArray(p.items) ? p.items : [];
-  const symptoms = Array.isArray(p.symptoms) ? p.symptoms : [];
+  const symptomSelection = resolveVisitSymptoms_(p);
+  const symptoms = symptomSelection.symptoms;
   const assessment = String(p.assessment || '').trim();
   const allowedInterventions = ['REST','WOUND_CARE','COLD_COMPRESS','WARM_COMPRESS','ORAL_HYDRATION','FIRST_AID','MEDICATION','MEDICAL_SUPPLY','PARENT_CONTACTED','REFERRED'];
   const rawInterventions = (Array.isArray(p.interventions) ? p.interventions : []).map(function(x){
@@ -447,7 +470,7 @@ function submitVisit_(p,s) {
     return rawVitals[k] !== undefined && rawVitals[k] !== null && String(rawVitals[k]).trim() !== '';
   });
 
-  if (!studentId || !clientTx) throw new Error('INVALID_INPUT');
+  if (!clientTx) throw new Error('INVALID_INPUT');
   if (!symptoms.length && !String(p.otherSymptom || '').trim() && !String(p.note || '').trim() && !assessment && !interventions.length && !hasVitals) {
     throw new Error('VISIT_CLINICAL_DATA_REQUIRED');
   }
@@ -465,6 +488,8 @@ function submitVisit_(p,s) {
   let detailLastRow = null;
   let txnLastRow = null;
   let stockWritten = false;
+  let completedResult = null;
+  let shouldNotify = false;
 
   try {
     const ss = getSpreadsheet_();
@@ -479,8 +504,6 @@ function submitVisit_(p,s) {
     })) {
       throw new Error('DUPLICATE_TRANSACTION');
     }
-
-    if (!studentExists_(studentId)) throw new Error('STUDENT_NOT_FOUND');
 
     const masterRows = rows_(SHEETS.ITEM_MASTER);
     const lotData = lotSheet.getDataRange().getValues();
@@ -546,6 +569,9 @@ function submitVisit_(p,s) {
       if (left !== 0) throw new Error('STOCK_ALLOCATION_FAILED');
       plans.push({raw:raw,master:master,allocations:allocations});
     });
+
+    validateStudentDrugSafetyForDispense_(recipient,p,plans);
+    const allergy = validateFreeTextAllergyForDispense_(recipient,p,plans);
 
     lotSnapshot = lotData.map(function(r){return r.slice();});
     headerLastRow = header.getLastRow();
@@ -622,7 +648,21 @@ function submitVisit_(p,s) {
       'Interventions':JSON.stringify(interventions),
       'Disposition':disposition,
       'Outcome Note':String(p.outcomeNote || ''),
-      'Completed At':completedAt
+      'Completed At':completedAt,
+      'Recipient ID':recipient.recipientId,
+      'Recipient Name':recipient.recipientName,
+      'Recipient Type':recipient.recipientType,
+      'Recipient Department/Class':recipient.departmentClass,
+      'Recipient Source':recipient.recipientSource,
+      'Recipient Contact':recipient.recipientContact,
+      'Drug Allergy Status':allergy.status,
+      'Drug Allergy Drug/Group':allergy.drugGroup,
+      'Drug Allergy Reaction':allergy.reaction,
+      'Drug Allergy Note':allergy.note,
+      'Symptom IDs':JSON.stringify(symptomSelection.symptomIds),
+      'Symptom Categories':JSON.stringify(symptomSelection.categories),
+      'Derived Visit Category':symptomSelection.derivedCategory,
+      'Clinical Alert Level':symptomSelection.clinicalAlertLevel
     };
     const currentHeader = header.getRange(1,1,1,header.getLastColumn()).getValues()[0].map(String);
     const hrow = currentHeader.map(function(name){
@@ -642,6 +682,9 @@ function submitVisit_(p,s) {
       txn.getRange(txn.getLastRow()+1,1,trows.length,trows[0].length).setValues(trows);
     }
 
+    clearCache_(SHEETS.DISPENSE_HEADER);
+    clearCache_(SHEETS.DISPENSE_ITEMS);
+    clearCache_(SHEETS.STOCK_TRANSACTION);
     syncItemQty_(lotData);
     audit_(s,'DISPENSE','DISPENSE',visitId,'SUCCESS');
 
@@ -649,7 +692,17 @@ function submitVisit_(p,s) {
       return {itemCode:code,dispensedQty:requestedByItem[code]};
     });
 
-    return {success:true,data:{visitId:visitId,items:resultItems,disposition:disposition,status:'COMPLETED'}};
+    shouldNotify = disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER';
+    completedResult = {success:true,data:{
+      visitId:visitId,
+      items:resultItems,
+      disposition:disposition,
+      status:'COMPLETED',
+      recipientType:recipient.recipientType,
+      derivedVisitCategory:symptomSelection.derivedCategory,
+      clinicalAlertLevel:symptomSelection.clinicalAlertLevel,
+      notification:null
+    }};
   } catch (err) {
     // Google Sheets has no native multi-sheet transaction. If any write after stock
     // mutation fails, restore the lot snapshot and remove rows appended by this request.
@@ -673,6 +726,25 @@ function submitVisit_(p,s) {
   } finally {
     lock.releaseLock();
   }
+
+  // Notification is intentionally outside ScriptLock and outside the clinical/stock
+  // rollback scope. Mail latency or failure can never roll back a completed visit.
+  if (completedResult && shouldNotify) {
+    try {
+      completedResult.data.notification = triggerReferralNotificationForVisit_(
+        completedResult.data.visitId,
+        s
+      );
+    } catch (notifyErr) {
+      completedResult.data.notification = {
+        status:'FAILED',
+        error:String(notifyErr && notifyErr.message || notifyErr)
+      };
+      auditSystem_('NOTIFICATION_TRIGGER','NOTIFICATION_LOG',completedResult.data.visitId,'FAILED');
+    }
+  }
+
+  return completedResult;
 }
 
 /* =========================
@@ -1748,7 +1820,20 @@ function humanError_(code) {
     LOT_STATUS_UNCHANGED:'Stock Lot อยู่ในสถานะนี้อยู่แล้ว',
     INVALID_COUNT_QTY:'จำนวนตรวจนับต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป',
     DUPLICATE_COUNT_LINE:'มี Stock Lot ซ้ำในรายการตรวจนับ',
-    TOO_MANY_COUNT_LINES:'จำนวนรายการตรวจนับมากเกินขีดจำกัดต่อครั้ง'
+    TOO_MANY_COUNT_LINES:'จำนวนรายการตรวจนับมากเกินขีดจำกัดต่อครั้ง',
+    RECIPIENT_NOT_FOUND:'ไม่พบผู้มารับบริการใน Master กรุณาค้นหาใหม่หรือใช้ Free Text Visit',
+    RECIPIENT_NAME_REQUIRED:'กรุณาระบุชื่อผู้มารับบริการ',
+    INVALID_RECIPIENT_TYPE:'ประเภทผู้มารับบริการไม่ถูกต้อง',
+    INVALID_STAFF_MASTER_ROW:'ข้อมูล Staff Master ไม่ถูกต้อง',
+    IMPORT_TOO_LARGE:'จำนวนข้อมูลนำเข้ามากเกินไป',
+    INVALID_SYMPTOM:'อาการที่เลือกไม่อยู่ใน Symptom Master หรือถูกปิดใช้งาน',
+    INVALID_SYMPTOM_CATEGORY:'หมวดอาการไม่ถูกต้อง',
+    ALLERGY_STATUS_REQUIRED:'ก่อนจ่ายยาใน Free Text Visit ต้องระบุสถานะแพ้ยา',
+    ALLERGY_DETAIL_REQUIRED:'กรณีมีประวัติแพ้ยา กรุณาระบุยา/กลุ่มยา อาการแพ้ และหมายเหตุ',
+    NOTIFICATION_NOT_FOUND:'ไม่พบ Notification Log',
+    NOTIFICATION_ALREADY_SENT:'Notification นี้ส่งสำเร็จแล้ว ไม่อนุญาตให้ส่งซ้ำ',
+    VISIT_NOT_FOUND:'ไม่พบ Visit ที่ต้องการ',
+    INVALID_DATE_RANGE:'ช่วงวันที่ไม่ถูกต้อง'
   };
   return map[code] || code;
 }
@@ -1813,13 +1898,13 @@ function rows_(name) {
 
   // Only read displayValues for USERS and STUDENTS to preserve leading zeros in Staff ID / Student ID
   // For other sheets, getValues is much faster and avoids a second synchronous RPC to Google Sheets
-  const needDisplay = (name === SHEETS.USERS || name === SHEETS.STUDENTS);
+  const needDisplay = (name === SHEETS.USERS || name === SHEETS.STUDENTS || name === SHEETS.STAFF_MASTER);
   const displayValues = needDisplay ? range.getDisplayValues() : null;
 
   const headers = values[0].map(String);
   const textCols = [
     'Staff ID', 'Student ID', 'Item Code', 'Lot Number', 'Stock Lot ID',
-    'Visit ID', 'Dispense Item ID', 'Transaction ID', 'Log ID', 'Reference ID', 'Client Transaction ID'
+    'Visit ID', 'Dispense Item ID', 'Transaction ID', 'Log ID', 'Notification ID', 'Recipient ID', 'Reference ID', 'Client Transaction ID'
   ];
   const result = values.slice(1).map(function(row, rIdx){
     const obj = {};
@@ -1845,7 +1930,7 @@ function rows_(name) {
 function formatTextColumns_(sh, headers) {
   const textCols = [
     'Staff ID', 'Student ID', 'Item Code', 'Lot Number', 'Stock Lot ID',
-    'Visit ID', 'Dispense Item ID', 'Transaction ID', 'Log ID', 'Reference ID', 'Client Transaction ID'
+    'Visit ID', 'Dispense Item ID', 'Transaction ID', 'Log ID', 'Notification ID', 'Recipient ID', 'Reference ID', 'Client Transaction ID'
   ];
   headers.forEach(function(h, i) {
     if (textCols.indexOf(h) >= 0) {
