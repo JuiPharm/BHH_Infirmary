@@ -95,6 +95,7 @@ export const VisitPage: React.FC = () => {
 
   const [safetyProfile, setSafetyProfile] = useState<StudentSafetyProfile | null>(null);
   const [loadingSafety, setLoadingSafety] = useState(false);
+  const [studentSafetyReviewed, setStudentSafetyReviewed] = useState(false);
 
   const [symptomCatalog, setSymptomCatalog] = useState<SymptomCatalogItem[]>([]);
   const [selectedSymptomIds, setSelectedSymptomIds] = useState<string[]>([]);
@@ -164,6 +165,7 @@ export const VisitPage: React.FC = () => {
   useEffect(() => {
     let active = true;
     setSafetyProfile(null);
+    setStudentSafetyReviewed(false);
     if (
       !selectedRecipient ||
       selectedRecipient.recipientType !== 'STUDENT' ||
@@ -255,6 +257,7 @@ export const VisitPage: React.FC = () => {
 
   const selectRecipient = (recipient: Recipient) => {
     setSelectedRecipient(recipient);
+    setStudentSafetyReviewed(false);
     setRecipientQuery(recipient.recipientName);
     setRecipients([]);
     setFreeTextMode(false);
@@ -279,6 +282,7 @@ export const VisitPage: React.FC = () => {
   const clearRecipient = () => {
     setSelectedRecipient(null);
     setSafetyProfile(null);
+    setStudentSafetyReviewed(false);
     setRecipientQuery('');
     setRecipients([]);
     setFreeTextMode(false);
@@ -409,6 +413,11 @@ export const VisitPage: React.FC = () => {
       return;
     }
 
+    if (hasDrug && selectedRecipient.recipientSource === 'STUDENT_MASTER' && !studentSafetyReviewed) {
+      Swal.fire('กรุณาตรวจสอบประวัติแพ้ยา', 'ยืนยันการอ่าน Student Safety Profile ก่อนจ่ายยา', 'warning');
+      return;
+    }
+
     if (selectedRecipient.recipientSource === 'FREE_TEXT') {
       const allergyError = validateFreeTextDrugAllergy(freeTextAllergy, hasDrug);
       if (allergyError) {
@@ -491,6 +500,12 @@ export const VisitPage: React.FC = () => {
           selectedRecipient.recipientSource === 'FREE_TEXT'
             ? freeTextAllergy
             : undefined,
+        studentSafetyAcknowledged:
+          selectedRecipient.recipientSource === 'STUDENT_MASTER' && studentSafetyReviewed,
+        studentDrugAllergySnapshot:
+          selectedRecipient.recipientSource === 'STUDENT_MASTER'
+            ? safetyProfile?.drugAllergy ?? ''
+            : '',
         items: cart.map((c) => ({
           itemCode: c.itemCode,
           qty: c.qty,
@@ -545,7 +560,16 @@ export const VisitPage: React.FC = () => {
       resetForm();
       loadItems();
     } catch (err: any) {
-      Swal.fire('บันทึกไม่สำเร็จ', err.message || 'เกิดข้อผิดพลาดในการบันทึก Visit', 'error');
+      const message = err?.message || 'เกิดข้อผิดพลาดในการบันทึก Visit';
+      const mayHaveCommitted =
+        /TIMEOUT|NETWORK|ไม่สามารถเชื่อมต่อ|ใช้เวลานาน|Duplicate|duplicate|ถูกประมวลผล/i.test(message);
+      Swal.fire({
+        title: mayHaveCommitted ? 'ยังยืนยันผลการบันทึกไม่ได้' : 'บันทึกไม่สำเร็จ',
+        text: mayHaveCommitted
+          ? message + '\nห้ามบันทึก Visit ซ้ำทันที โปรดตรวจสอบประวัติ Visit ก่อน เพื่อป้องกันการจ่ายสต็อกซ้ำ'
+          : message,
+        icon: mayHaveCommitted ? 'warning' : 'error'
+      });
     } finally {
       setSubmitting(false);
     }
@@ -764,7 +788,27 @@ export const VisitPage: React.FC = () => {
 
           {selectedRecipient?.recipientType === 'STUDENT' &&
             selectedRecipient.recipientSource === 'STUDENT_MASTER' && (
-              <StudentSafetyCard profile={safetyProfile} loading={loadingSafety} compact />
+              <>
+            <StudentSafetyCard profile={safetyProfile} loading={loadingSafety} compact />
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10, padding: 12,
+              background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: 8, marginBottom: 12
+            }}>
+              <input
+                type="checkbox"
+                checked={studentSafetyReviewed}
+                disabled={!safetyProfile || loadingSafety}
+                onChange={(e) => setStudentSafetyReviewed(e.target.checked)}
+                style={{ width: 20, height: 20, flexShrink: 0 }}
+              />
+              <span>
+                <strong>ยืนยันตรวจสอบ Drug Allergy / Student Safety Profile แล้ว</strong>
+                <span style={{ display: 'block', color: '#475569', fontSize: '.84rem' }}>
+                  ต้องยืนยันก่อนจ่ายยา ระบบตรวจสอบข้อมูลล่าสุดกับ Master อีกครั้งเมื่อบันทึก
+                </span>
+              </span>
+            </label>
+          </>
             )}
 
           {selectedRecipient?.recipientSource === 'FREE_TEXT' && (
