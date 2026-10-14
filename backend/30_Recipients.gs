@@ -138,6 +138,26 @@ function studentDepartmentClass_(row) {
   return grade || cls;
 }
 
+// Must be verified again on the backend; a loaded frontend profile alone
+// cannot authorize medication dispensing for a master-backed student.
+function validateStudentDrugSafetyForDispense_(recipient,p,plans) {
+  if (!recipient || recipient.recipientSource !== 'STUDENT_MASTER') return;
+  const hasDrug = (plans || []).some(function(plan){
+    return normalizeItemType_(plan && plan.master && plan.master['Item Type']) === 'DRUG';
+  });
+  if (!hasDrug) return;
+
+  const student = rows_(SHEETS.STUDENTS).find(function(x) {
+    return String(x['Student ID'] || '').trim() === recipient.recipientId &&
+      isActiveStatus_(x.Status);
+  });
+  if (!student) throw new Error('STUDENT_NOT_FOUND');
+  const latestAllergy = String(student['Drug Allergy'] || '').trim();
+  const reviewedSnapshot = String(p.studentDrugAllergySnapshot || '').trim();
+  if (p.studentSafetyAcknowledged !== true || reviewedSnapshot !== latestAllergy)
+    throw new Error('STUDENT_SAFETY_REVIEW_REQUIRED');
+}
+
 function validateFreeTextAllergyForDispense_(recipient,p,plans) {
   const result = {
     status:'',
