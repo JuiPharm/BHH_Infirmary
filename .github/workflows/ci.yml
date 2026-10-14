@@ -24,6 +24,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Check Apps Script syntax
+        run: |
+          cat backend/*.gs > /tmp/bhh-infirmary-backend.js
+          node --check /tmp/bhh-infirmary-backend.js
+
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
