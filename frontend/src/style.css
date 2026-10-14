@@ -660,6 +660,9 @@ textarea.form-control {
   .hamburger {
     display: block;
   }
+}
+
+@media (max-width: 768px) {
   .grid-2, .grid-4 {
     grid-template-columns: 1fr;
   }
