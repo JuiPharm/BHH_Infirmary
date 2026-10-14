@@ -22,7 +22,7 @@ const HEADERS = {
 };
 
 const ROLES = ['NURSE','ADMIN','MANAGER','SUPER_ADMIN'];
-const API_VERSION = '2.4.0';
+const API_VERSION = '2.4.1';
 
 function doGet(e) {
   return out_({success:true,service:'School Nurse System API',apiVersion:API_VERSION,timestamp:now_()});
@@ -95,6 +95,8 @@ function route_(r) {
     case 'updateConfig': return updateConfig_(r.payload || {}, session);
     case 'getNotificationLog': return getNotificationLog_(r.payload || {}, session);
     case 'retryNotification': return retryNotification_(r.payload || {}, session);
+    case 'reconcileNotifications': return reconcileNotifications_(r.payload || {}, session);
+    case 'resolveUncertainNotification': return resolveUncertainNotification_(r.payload || {}, session);
     default: throw new Error('UNKNOWN_ACTION');
   }
 }
@@ -448,7 +450,7 @@ function submitVisit_(p,s) {
   if (!['NURSE','ADMIN','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
 
   const recipient = resolveRecipientForVisit_(p);
-  const studentId = recipient.recipientType === 'STUDENT' ? recipient.recipientId : '';
+  const studentId = recipient.recipientSource === 'STUDENT_MASTER' ? recipient.recipientId : '';
   const clientTx = String(p.clientTransactionId || '').trim();
   const items = Array.isArray(p.items) ? p.items : [];
   const symptomSelection = resolveVisitSymptoms_(p);
@@ -568,6 +570,7 @@ function submitVisit_(p,s) {
       plans.push({raw:raw,master:master,allocations:allocations});
     });
 
+    validateStudentDrugSafetyForDispense_(recipient,p,plans);
     const allergy = validateFreeTextAllergyForDispense_(recipient,p,plans);
 
     lotSnapshot = lotData.map(function(r){return r.slice();});
