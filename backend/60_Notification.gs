@@ -179,9 +179,15 @@ function reconcileNotifications_(p,s) {
   const logs = rows_(SHEETS.NOTIFICATION_LOG);
   const known = {};
   logs.forEach(function(x){ known[String(x['Visit ID'] || '')+':'+String(x['Notification Type'] || '')] = true; });
+  // Never bulk-send historical referrals when email is enabled for the
+  // first time. Recovery is limited to visits from the last 72 hours.
+  const cutoff = Utilities.formatDate(new Date(Date.now()-72*3600000),
+    getTimeZone_(),'yyyy-MM-dd');
   const missing = rows_(SHEETS.DISPENSE_HEADER).filter(function(v) {
     const cfg = notificationConfigForDisposition_(v.Disposition);
-    return cfg && String(v.Status || '').toUpperCase() === 'COMPLETED' &&
+    const date = String(v['Visit Date'] || '').trim();
+    return cfg && date >= cutoff &&
+      String(v.Status || '').toUpperCase() === 'COMPLETED' &&
       getConfigBoolean_(cfg.enabledKey,false) &&
       !known[String(v['Visit ID'] || '')+':'+cfg.type];
   }).slice(0,limit);
