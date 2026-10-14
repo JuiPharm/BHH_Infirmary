@@ -170,48 +170,102 @@ function validateFreeTextAllergyForDispense_(recipient,p,plans) {
   return result;
 }
 
+// Spreadsheet has no atomic multi-row upsert. All rows are validated first and
+// old rows are kept untouched except the matching ID; any partial write is
+// reversed from the in-memory snapshot before the lock is released.
 function importStaffMaster_(p,s) {
   requireRole_(s,['ADMIN','SUPER_ADMIN']);
   const incoming = Array.isArray(p && p.rows) ? p.rows : [];
   if (!incoming.length) throw new Error('INVALID_INPUT');
   if (incoming.length > 2000) throw new Error('IMPORT_TOO_LARGE');
 
+  const seen = {};
+  const validated = incoming.map(function(raw) {
+    if (!raw || typeof raw !== 'object') throw new Error('INVALID_STAFF_MASTER_ROW');
+    const id = limitedText_(raw.staffId || raw['Staff ID'],100);
+    const name = limitedText_(raw.fullName || raw['Full Name'],200);
+    const type = String(raw.recipientType || raw['Recipient Type'] || '').trim().toUpperCase();
+    const status = String(raw.status || raw.Status || 'ACTIVE').trim().toUpperCase();
+    if (!id || !name || STAFF_MASTER_TYPES.indexOf(type) < 0 ||
+        ['ACTIVE','INACTIVE'].indexOf(status) < 0) {
+      throw new Error('INVALID_STAFF_MASTER_ROW');
+    }
+    if (seen[id]) throw new Error('DUPLICATE_STAFF_ID_IN_IMPORT');
+    seen[id] = true;
+    return {
+      id:id, name:name, type:type,
+      department:limitedText_(raw.department || raw.Department,200),
+      status:status
+    };
+  });
+
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
     const sh = getSheet_(SHEETS.STAFF_MASTER);
     ensureHeaders_(sh,HEADERS.STAFF_MASTER);
-    const current = rows_(SHEETS.STAFF_MASTER);
-    const map = {};
-    current.forEach(function(r){
-      map[String(r['Staff ID'] || '').trim()] = r;
+    const data = sh.getDataRange().getValues();
+    const display = sh.getDataRange().getDisplayValues();
+    const header = data[0].map(String);
+    const h = headerMap_(header);
+    const originalLastRow = sh.getLastRow();
+    const existingById = {};
+    for (let i=1;i<data.length;i++) {
+      const id = String(display[i][h['Staff ID']] || data[i][h['Staff ID']] || '').trim();
+      if (!id) continue;
+      if (existingById[id] !== undefined) throw new Error('DUPLICATE_EXISTING_STAFF_ID');
+      existingById[id] = i+1;
+    }
+
+    const updates = [];
+    const additions = [];
+    const timestamp = now_();
+    validated.forEach(function(entry) {
+      const rowNum = existingById[entry.id];
+      const row = rowNum ? data[rowNum-1].slice() : Array(header.length).fill('');
+      row[h['Staff ID']] = entry.id;
+      row[h['Full Name']] = entry.name;
+      row[h['Recipient Type']] = entry.type;
+      row[h.Department] = entry.department;
+      row[h.Status] = entry.status;
+      row[h['Updated At']] = timestamp;
+      if (rowNum) {
+        updates.push({rowNum:rowNum,before:data[rowNum-1].slice(),after:row});
+      } else {
+        additions.push(row);
+      }
     });
 
-    incoming.forEach(function(raw){
-      const id = limitedText_(raw.staffId || raw['Staff ID'],100);
-      const name = limitedText_(raw.fullName || raw['Full Name'],200);
-      const type = String(raw.recipientType || raw['Recipient Type'] || '').trim().toUpperCase();
-      if (!id || !name || STAFF_MASTER_TYPES.indexOf(type) < 0) throw new Error('INVALID_STAFF_MASTER_ROW');
-      map[id] = {
-        'Staff ID':id,
-        'Full Name':name,
-        'Recipient Type':type,
-        'Department':limitedText_(raw.department || raw.Department,200),
-        'Status':String(raw.status || raw.Status || 'ACTIVE').trim().toUpperCase(),
-        'Updated At':now_()
-      };
-    });
+    const written = [];
+    try {
+      updates.forEach(function(x) {
+        sh.getRange(x.rowNum,1,1,header.length).setValues([x.after]);
+        written.push(x);
+      });
+      if (additions.length) {
+        sh.getRange(originalLastRow+1,1,additions.length,header.length).setValues(additions);
+      }
+    } catch (writeErr) {
+      let rollbackFailed = false;
+      try {
+        if (sh.getLastRow() > originalLastRow) truncateAfterRow_(sh,originalLastRow);
+        written.reverse().forEach(function(x) {
+          sh.getRange(x.rowNum,1,1,header.length).setValues([x.before]);
+        });
+      } catch (rollbackErr) {
+        rollbackFailed = true;
+      }
+      clearCache_(SHEETS.STAFF_MASTER);
+      if (rollbackFailed) throw new Error('STAFF_MASTER_IMPORT_ROLLBACK_FAILED');
+      throw writeErr;
+    }
 
-    const headers = HEADERS.STAFF_MASTER;
-    const rows = Object.keys(map).sort().map(function(id){
-      const r = map[id];
-      return headers.map(function(h){ return r[h] === undefined ? '' : r[h]; });
-    });
-    if (sh.getLastRow() > 1) sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).clearContent();
-    if (rows.length) sh.getRange(2,1,rows.length,headers.length).setValues(rows);
     clearCache_(SHEETS.STAFF_MASTER);
     audit_(s,'IMPORT_STAFF_MASTER','STAFF_MASTER','ROWS:'+incoming.length,'SUCCESS');
-    return {success:true,data:{imported:incoming.length,total:rows.length}};
+    return {success:true,data:{
+      imported:incoming.length,updated:updates.length,created:additions.length,
+      total:originalLastRow-1+additions.length
+    }};
   } finally {
     lock.releaseLock();
   }
