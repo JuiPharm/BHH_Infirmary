@@ -19,6 +19,7 @@ function makeContext() {
     limitedText_:(v,max)=> String(v || '').trim().slice(0,max),
     headerMap_:(names)=>Object.fromEntries(names.map((name,i)=>[name,i])),
     clearCache_:()=>{},audit_:()=>{},auditSystem_:()=>{},
+    requireRole_:(session,roles)=>{if(!roles.includes(session.role))throw Error('ACCESS_DENIED');},
     now_:()=> '2026-10-14 10:00:00',
     normalizeItemType_:(v)=>v === 'MEDICAL_SUPPLY' ? 'MEDICAL_SUPPLY' : 'DRUG',
     isActiveStatus_:(v)=>!v || v === 'ACTIVE',
