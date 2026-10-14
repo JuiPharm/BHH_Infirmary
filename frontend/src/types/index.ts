@@ -256,3 +256,88 @@ export interface ApiResponse<T> {
   errorCode?: string;
   message?: string;
 }
+
+
+export type RecipientType = 'STUDENT' | 'TEACHER' | 'STAFF' | 'OTHER' | 'PARENT' | 'VISITOR';
+export type RecipientSource = 'STUDENT_MASTER' | 'STAFF_MASTER' | 'FREE_TEXT';
+
+export interface Recipient {
+  recipientId: string;
+  recipientName: string;
+  recipientType: RecipientType;
+  departmentClass: string;
+  recipientSource: RecipientSource;
+  recipientContact?: string;
+  grade?: string;
+  className?: string;
+}
+
+export type SymptomCategory = 'TRAUMA' | 'NON_TRAUMA' | 'OTHER';
+export type ClinicalAlertLevel = 'NORMAL' | 'CAUTION' | 'URGENT' | 'EMERGENCY';
+
+export interface SymptomCatalogItem {
+  symptomId: string;
+  symptom: string;
+  category: SymptomCategory;
+  clinicalAlertLevel: ClinicalAlertLevel;
+  sortOrder: number;
+}
+
+export type DrugAllergyStatus = 'NKDA' | 'KNOWN_ALLERGY' | 'UNKNOWN' | '';
+
+export interface FreeTextDrugAllergy {
+  status: DrugAllergyStatus;
+  drugGroup: string;
+  reaction: string;
+  note: string;
+}
+
+export interface VisitNotificationResult {
+  notificationId?: string;
+  status?: 'SENT' | 'FAILED' | 'PENDING' | 'RETRY' | 'DISABLED' | 'NOT_REQUIRED' | string;
+  type?: string;
+  error?: string;
+  duplicatePrevented?: boolean;
+}
+
+export interface VisitSubmitP4Result {
+  visitId: string;
+  disposition: string;
+  status: string;
+  recipientType: RecipientType;
+  derivedVisitCategory: SymptomCategory | '';
+  clinicalAlertLevel: ClinicalAlertLevel;
+  notification?: VisitNotificationResult | null;
+}
+
+export interface DashboardV2Summary {
+  totalVisits: number;
+  uniqueRecipients: number;
+  studentVisits: number;
+  teacherVisits: number;
+  staffVisits: number;
+  otherVisits: number;
+  referralToHospital: number;
+  emergencyTransfer: number;
+  repeatVisits: number;
+}
+
+export interface DashboardV2Data {
+  filters: {
+    startDate: string;
+    endDate: string;
+    recipientType: '' | 'STUDENT' | 'TEACHER' | 'STAFF' | 'OTHER';
+    symptomCategory: '' | SymptomCategory;
+    gradeClass: string;
+  };
+  summary: DashboardV2Summary;
+  categoryCounts: {
+    TRAUMA: number;
+    NON_TRAUMA: number;
+    OTHER: number;
+    UNCLASSIFIED: number;
+  };
+  trend: VisitTrendData[];
+  topSymptoms: TopSymptomData[];
+  gradeClassOptions: string[];
+}
