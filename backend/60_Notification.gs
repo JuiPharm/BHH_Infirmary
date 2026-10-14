@@ -1,72 +1,61 @@
-/* P4 — Referral / emergency notification service.
-   Notification is deliberately isolated from the clinical transaction.
-   A mail failure is audited as FAILED and must never roll back a completed visit.
-*/
+/* P4 — Referral/email outbox. Clinical records commit independently of email.
+   MailApp + Sheets cannot offer exactly-once delivery. Ambiguous sends are held
+   as SENDING/UNKNOWN and must be reconciled by an authorized operator. */
+
+function notificationConfigForDisposition_(disposition) {
+  const d = String(disposition || '').trim().toUpperCase();
+  if (d === 'REFER_HOSPITAL') {
+    return {type:'REFERRAL',enabledKey:'REFERRAL_EMAIL_ENABLED',
+      toKey:'REFERRAL_EMAIL_TO',ccKey:'REFERRAL_EMAIL_CC',
+      prefixKey:'REFERRAL_EMAIL_SUBJECT_PREFIX'};
+  }
+  if (d === 'EMERGENCY_TRANSFER') {
+    return {type:'EMERGENCY_TRANSFER',enabledKey:'EMERGENCY_EMAIL_ENABLED',
+      toKey:'EMERGENCY_EMAIL_TO',ccKey:'EMERGENCY_EMAIL_CC',
+      prefixKey:'EMERGENCY_EMAIL_SUBJECT_PREFIX'};
+  }
+  return null;
+}
 
 function triggerReferralNotificationForVisit_(visitId,s) {
   const visit = getVisitForNotification_(visitId);
-  const disposition = String(visit.Disposition || '').trim().toUpperCase();
-  let type = '';
-  let enabledKey = '';
-  let toKey = '';
-  let ccKey = '';
-  let prefixKey = '';
+  const cfg = notificationConfigForDisposition_(visit.Disposition);
+  if (!cfg) return {status:'NOT_REQUIRED'};
+  if (!getConfigBoolean_(cfg.enabledKey,false)) return {status:'DISABLED',type:cfg.type};
+  const to = normalizeEmailList_(getConfigValue_(cfg.toKey,''));
+  const cc = normalizeEmailList_(getConfigValue_(cfg.ccKey,''));
+  const message = buildReferralEmail_(visit,cfg.type,cfg.prefixKey);
 
-  if (disposition === 'REFER_HOSPITAL') {
-    type = 'REFERRAL';
-    enabledKey = 'REFERRAL_EMAIL_ENABLED';
-    toKey = 'REFERRAL_EMAIL_TO';
-    ccKey = 'REFERRAL_EMAIL_CC';
-    prefixKey = 'REFERRAL_EMAIL_SUBJECT_PREFIX';
-  } else if (disposition === 'EMERGENCY_TRANSFER') {
-    type = 'EMERGENCY_TRANSFER';
-    enabledKey = 'EMERGENCY_EMAIL_ENABLED';
-    toKey = 'EMERGENCY_EMAIL_TO';
-    ccKey = 'EMERGENCY_EMAIL_CC';
-    prefixKey = 'EMERGENCY_EMAIL_SUBJECT_PREFIX';
-  } else {
-    return {status:'NOT_REQUIRED'};
+  // Atomic creation of one log per Visit ID + type; no MailApp call inside lock.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  let notificationId = '';
+  let existingResult = null;
+  try {
+    clearCache_(SHEETS.NOTIFICATION_LOG);
+    const existing = rows_(SHEETS.NOTIFICATION_LOG).find(function(x){
+      return String(x['Visit ID'] || '') === String(visitId) &&
+        String(x['Notification Type'] || '') === cfg.type;
+    });
+    if (existing) {
+      existingResult = {
+        notificationId:String(existing['Notification ID'] || ''),
+        status:String(existing.Status || ''),
+        type:cfg.type,
+        duplicatePrevented:true
+      };
+    } else {
+      notificationId = 'NT'+Utilities.getUuid().replace(/-/g,'').slice(0,16);
+      getSheet_(SHEETS.NOTIFICATION_LOG).appendRow([
+        notificationId,visitId,cfg.type,'EMAIL',to.join(','),cc.join(','),
+        message.subject,'PENDING',0,now_(),'','',s && s.staffId ? s.staffId : 'SYSTEM'
+      ]);
+      clearCache_(SHEETS.NOTIFICATION_LOG);
+    }
+  } finally {
+    lock.releaseLock();
   }
-
-  if (!getConfigBoolean_(enabledKey,false)) {
-    return {status:'DISABLED',type:type};
-  }
-
-  const existing = rows_(SHEETS.NOTIFICATION_LOG).find(function(x){
-    return String(x['Visit ID'] || '') === visitId &&
-      String(x['Notification Type'] || '') === type;
-  });
-  if (existing) {
-    return {
-      notificationId:String(existing['Notification ID'] || ''),
-      status:String(existing.Status || ''),
-      type:type,
-      duplicatePrevented:true
-    };
-  }
-
-  const recipients = normalizeEmailList_(getConfigValue_(toKey,''));
-  const cc = normalizeEmailList_(getConfigValue_(ccKey,''));
-  const message = buildReferralEmail_(visit,type,prefixKey);
-  const notificationId = 'NT'+Utilities.getUuid().replace(/-/g,'').slice(0,16);
-
-  getSheet_(SHEETS.NOTIFICATION_LOG).appendRow([
-    notificationId,
-    visitId,
-    type,
-    'EMAIL',
-    recipients.join(','),
-    cc.join(','),
-    message.subject,
-    'PENDING',
-    0,
-    now_(),
-    '',
-    '',
-    s && s.staffId ? s.staffId : 'SYSTEM'
-  ]);
-  clearCache_(SHEETS.NOTIFICATION_LOG);
-
+  if (existingResult) return existingResult;
   return sendNotificationById_(notificationId,s);
 }
 
@@ -86,25 +75,38 @@ function retryNotification_(p,s) {
   requireRole_(s,['NURSE','ADMIN','SUPER_ADMIN']);
   const id = String(p && p.notificationId || '').trim();
   if (!id) throw new Error('INVALID_INPUT');
-
-  const row = rows_(SHEETS.NOTIFICATION_LOG).find(function(x){
-    return String(x['Notification ID'] || '') === id;
-  });
-  if (!row) throw new Error('NOTIFICATION_NOT_FOUND');
-  if (String(row.Status || '').toUpperCase() === 'SENT') throw new Error('NOTIFICATION_ALREADY_SENT');
-
-  updateNotificationLog_(id,{Status:'RETRY','Error Message':''});
-  return sendNotificationById_(id,s);
+  // sendNotificationById_ uses ScriptLock for the check+claim. Only a
+  // definitive failure can be retried, never SENDING, SENT or UNKNOWN.
+  return sendNotificationById_(id,s,true);
 }
 
-function sendNotificationById_(notificationId,s) {
-  clearCache_(SHEETS.NOTIFICATION_LOG);
-  const log = rows_(SHEETS.NOTIFICATION_LOG).find(function(x){
-    return String(x['Notification ID'] || '') === notificationId;
-  });
-  if (!log) throw new Error('NOTIFICATION_NOT_FOUND');
-  if (String(log.Status || '').toUpperCase() === 'SENT') {
-    return {notificationId:notificationId,status:'SENT',duplicatePrevented:true};
+function sendNotificationById_(notificationId,s,isRetry) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  let log, attempt;
+  try {
+    clearCache_(SHEETS.NOTIFICATION_LOG);
+    log = rows_(SHEETS.NOTIFICATION_LOG).find(function(x){
+      return String(x['Notification ID'] || '') === notificationId;
+    });
+    if (!log) throw new Error('NOTIFICATION_NOT_FOUND');
+    const status = String(log.Status || '').trim().toUpperCase();
+    if (status === 'SENT') {
+      if (isRetry) throw new Error('NOTIFICATION_ALREADY_SENT');
+      return {notificationId:notificationId,status:'SENT',duplicatePrevented:true};
+    }
+    if (status === 'SENDING' || status === 'UNKNOWN') {
+      if (isRetry) throw new Error('NOTIFICATION_STATUS_UNCERTAIN');
+      return {notificationId:notificationId,status:status,duplicatePrevented:true};
+    }
+    if (isRetry && status !== 'FAILED') throw new Error('NOTIFICATION_RETRY_NOT_ALLOWED');
+    if (['PENDING','FAILED'].indexOf(status) < 0) throw new Error('NOTIFICATION_STATUS_INVALID');
+    attempt = (Number(log['Attempt Count']) || 0) + 1;
+    updateNotificationLog_(notificationId,{
+      Status:'SENDING','Attempt Count':attempt,'Error Message':''
+    });
+  } finally {
+    lock.releaseLock();
   }
 
   const visit = getVisitForNotification_(String(log['Visit ID'] || ''));
@@ -115,48 +117,96 @@ function sendNotificationById_(notificationId,s) {
   const message = buildReferralEmail_(visit,type,prefixKey);
   const to = normalizeEmailList_(String(log.Recipient || ''));
   const cc = normalizeEmailList_(String(log.CC || ''));
-  const attempt = (Number(log['Attempt Count']) || 0) + 1;
 
   if (!to.length) {
     updateNotificationLog_(notificationId,{
-      Status:'FAILED',
-      'Attempt Count':attempt,
-      'Error Message':'NOTIFICATION_RECIPIENT_NOT_CONFIGURED'
+      Status:'FAILED','Error Message':'NOTIFICATION_RECIPIENT_NOT_CONFIGURED'
     });
     return {notificationId:notificationId,status:'FAILED',error:'NOTIFICATION_RECIPIENT_NOT_CONFIGURED'};
   }
 
+  const options = {
+    to:to.join(','),subject:message.subject,body:message.textBody,
+    htmlBody:message.htmlBody,name:getConfigValue_('NOTIFICATION_FROM_NAME','BHH Infirmary')
+  };
+  if (cc.length) options.cc = cc.join(',');
   try {
-    const options = {
-      to:to.join(','),
-      subject:message.subject,
-      body:message.textBody,
-      htmlBody:message.htmlBody,
-      name:getConfigValue_('NOTIFICATION_FROM_NAME','BHH Infirmary')
-    };
-    if (cc.length) options.cc = cc.join(',');
     MailApp.sendEmail(options);
-
-    updateNotificationLog_(notificationId,{
-      Subject:message.subject,
-      Status:'SENT',
-      'Attempt Count':attempt,
-      'Sent At':now_(),
-      'Error Message':'',
-      'Staff ID':s && s.staffId ? s.staffId : String(log['Staff ID'] || 'SYSTEM')
-    });
-    auditSystem_('SEND_NOTIFICATION','NOTIFICATION_LOG',notificationId,'SENT');
-    return {notificationId:notificationId,status:'SENT'};
   } catch (err) {
-    const errorMessage = limitedText_(String(err && err.message || err || 'EMAIL_SEND_FAILED'),1000);
+    // An exception does not prove that delivery did not happen.
+    // Safe default: UNKNOWN cannot be automatically resent.
+    const reason = limitedText_(String(err && err.message || err || 'MAIL_APP_ERROR'),1000);
+    try { updateNotificationLog_(notificationId,{Status:'UNKNOWN','Error Message':reason}); } catch (_) {}
+    try { auditSystem_('SEND_NOTIFICATION','NOTIFICATION_LOG',notificationId,'UNKNOWN'); } catch (_) {}
+    return {notificationId:notificationId,status:'UNKNOWN',error:reason};
+  }
+
+  try {
     updateNotificationLog_(notificationId,{
-      Status:'FAILED',
-      'Attempt Count':attempt,
-      'Error Message':errorMessage,
-      'Staff ID':s && s.staffId ? s.staffId : String(log['Staff ID'] || 'SYSTEM')
+      Subject:message.subject,Status:'SENT','Sent At':now_(),
+      'Error Message':'','Staff ID':s && s.staffId ? s.staffId : String(log['Staff ID'] || 'SYSTEM')
     });
-    auditSystem_('SEND_NOTIFICATION','NOTIFICATION_LOG',notificationId,'FAILED');
-    return {notificationId:notificationId,status:'FAILED',error:errorMessage};
+  } catch (err) {
+    // Email may already be delivered. Leave SENDING if UNKNOWN cannot be written.
+    const reason = 'MAIL_SENT_LOG_UPDATE_FAILED: '+String(err && err.message || err);
+    try { updateNotificationLog_(notificationId,{Status:'UNKNOWN','Error Message':reason}); } catch (_) {}
+    return {notificationId:notificationId,status:'UNKNOWN',error:reason};
+  }
+  try { auditSystem_('SEND_NOTIFICATION','NOTIFICATION_LOG',notificationId,'SENT'); } catch (_) {}
+  return {notificationId:notificationId,status:'SENT'};
+}
+
+// On-demand recovery for visits committed before an outbox row existed.
+// Does not resend records already present in the outbox (including UNKNOWN).
+function reconcileNotifications_(p,s) {
+  requireRole_(s,['ADMIN','SUPER_ADMIN']);
+  const limit = Math.min(Math.max(Number(p && p.limit) || 25,1),100);
+  clearCache_(SHEETS.NOTIFICATION_LOG);
+  const logs = rows_(SHEETS.NOTIFICATION_LOG);
+  const known = {};
+  logs.forEach(function(x){ known[String(x['Visit ID'] || '')+':'+String(x['Notification Type'] || '')] = true; });
+  const missing = rows_(SHEETS.DISPENSE_HEADER).filter(function(v) {
+    const cfg = notificationConfigForDisposition_(v.Disposition);
+    return cfg && String(v.Status || '').toUpperCase() === 'COMPLETED' &&
+      getConfigBoolean_(cfg.enabledKey,false) &&
+      !known[String(v['Visit ID'] || '')+':'+cfg.type];
+  }).slice(0,limit);
+  const results = [];
+  missing.forEach(function(v) {
+    try {
+      const n = triggerReferralNotificationForVisit_(String(v['Visit ID'] || ''),s);
+      results.push({visitId:String(v['Visit ID'] || ''),status:n.status});
+    } catch (err) {
+      results.push({visitId:String(v['Visit ID'] || ''),status:'FAILED_TO_QUEUE',
+        error:String(err && err.message || err)});
+    }
+  });
+  return {success:true,data:{checked:missing.length,results:results}};
+}
+
+// If an operator verifies independently that no email was delivered,
+// a SUPER_ADMIN can unlock a single uncertain notification for a *manual*
+// retry. Such an action is audited; never call this automatically.
+function resolveUncertainNotification_(p,s) {
+  requireRole_(s,['SUPER_ADMIN']);
+  if (String(p && p.confirmation || '') !== 'CONFIRMED_NOT_DELIVERED')
+    throw new Error('NOTIFICATION_CONFIRMATION_REQUIRED');
+  const id = String(p && p.notificationId || '').trim();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    clearCache_(SHEETS.NOTIFICATION_LOG);
+    const row = rows_(SHEETS.NOTIFICATION_LOG).find(function(x){
+      return String(x['Notification ID'] || '') === id;
+    });
+    if (!row || ['SENDING','UNKNOWN'].indexOf(String(row.Status || '').toUpperCase()) < 0)
+      throw new Error('NOTIFICATION_STATUS_INVALID');
+    updateNotificationLog_(id,{Status:'FAILED',
+      'Error Message':'Operator verified NOT delivered; manually unlocked by '+s.staffId});
+    audit_(s,'UNLOCK_UNCERTAIN_NOTIFICATION','NOTIFICATION_LOG',id,'SUCCESS');
+    return {success:true,data:{notificationId:id,status:'FAILED'}};
+  } finally {
+    lock.releaseLock();
   }
 }
 
