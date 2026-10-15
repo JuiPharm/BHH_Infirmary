@@ -23,6 +23,12 @@ describe('P4 visit classification', () => {
     expect(deriveVisitCategory(catalog, ['N1', 'O1'])).toBe('NON_TRAUMA');
   });
 
+  it('derives category for custom Trauma and Non-Trauma symptoms', () => {
+    expect(deriveVisitCategory(catalog, [], ['TRAUMA'])).toBe('TRAUMA');
+    expect(deriveVisitCategory(catalog, [], ['NON_TRAUMA'])).toBe('NON_TRAUMA');
+    expect(deriveVisitCategory(catalog, [], ['NON_TRAUMA', 'TRAUMA'])).toBe('TRAUMA');
+  });
+
   it('derives OTHER when only other symptoms exist', () => {
     expect(deriveVisitCategory(catalog, ['O1'])).toBe('OTHER');
   });
