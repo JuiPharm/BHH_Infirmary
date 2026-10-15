@@ -14,13 +14,15 @@ const ALERT_RANK: Record<ClinicalAlertLevel, number> = {
 
 export function deriveVisitCategory(
   catalog: SymptomCatalogItem[],
-  selectedIds: string[]
+  selectedIds: string[],
+  customCategories: SymptomCategory[] = []
 ): SymptomCategory | '' {
-  const categories = new Set(
-    catalog
+  const categories = new Set<SymptomCategory>([
+    ...catalog
       .filter((item) => selectedIds.includes(item.symptomId))
-      .map((item) => item.category)
-  );
+      .map((item) => item.category),
+    ...customCategories
+  ]);
 
   if (categories.has('TRAUMA')) return 'TRAUMA';
   if (categories.has('NON_TRAUMA')) return 'NON_TRAUMA';

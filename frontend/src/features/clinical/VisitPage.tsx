@@ -66,6 +66,9 @@ const CATEGORY_LABELS: Record<SymptomCategory, string> = {
   OTHER: 'Other'
 };
 
+type CustomSymptomCategory = Extract<SymptomCategory, 'TRAUMA' | 'NON_TRAUMA'>;
+type CustomSymptom = { category: CustomSymptomCategory; symptom: string };
+
 const numericOrBlank = (value: string): number | '' => {
   if (!value.trim()) return '';
   const n = Number(value);
@@ -103,6 +106,11 @@ export const VisitPage: React.FC = () => {
   const [loadingSymptoms, setLoadingSymptoms] = useState(false);
   const [symptomCatalogError, setSymptomCatalogError] = useState('');
   const [selectedSymptomIds, setSelectedSymptomIds] = useState<string[]>([]);
+  const [customSymptoms, setCustomSymptoms] = useState<CustomSymptom[]>([]);
+  const [customSymptomDrafts, setCustomSymptomDrafts] = useState<Record<CustomSymptomCategory, string>>({
+    TRAUMA: '',
+    NON_TRAUMA: ''
+  });
   const [symptomSearch, setSymptomSearch] = useState('');
   const [expandedSymptomCategories, setExpandedSymptomCategories] = useState<SymptomCategory[]>(['NON_TRAUMA']);
   const symptomSearchInputRef = useRef<HTMLInputElement>(null);
@@ -266,8 +274,8 @@ export const VisitPage: React.FC = () => {
   );
 
   const derivedCategory = useMemo(
-    () => deriveVisitCategory(symptomCatalog, selectedSymptomIds),
-    [symptomCatalog, selectedSymptomIds]
+    () => deriveVisitCategory(symptomCatalog, selectedSymptomIds, customSymptoms.map((item) => item.category)),
+    [symptomCatalog, selectedSymptomIds, customSymptoms]
   );
   const clinicalAlert = useMemo(
     () => deriveClinicalAlert(symptomCatalog, selectedSymptomIds),
@@ -292,6 +300,25 @@ export const VisitPage: React.FC = () => {
     () => symptomCatalog.filter((item) => selectedSymptomIds.includes(item.symptomId)),
     [symptomCatalog, selectedSymptomIds]
   );
+
+  const addCustomSymptom = (category: CustomSymptomCategory) => {
+    const symptom = customSymptomDrafts[category].trim();
+    if (!symptom) return;
+    if (symptom.length > 200) {
+      Swal.fire('รายละเอียดอาการยาวเกินไป', 'ระบุได้ไม่เกิน 200 ตัวอักษร', 'warning');
+      return;
+    }
+    if (customSymptoms.some((item) => item.category === category && item.symptom.toLocaleLowerCase() === symptom.toLocaleLowerCase())) {
+      Swal.fire('เพิ่มอาการนี้แล้ว', 'อาการ Free text ซ้ำในหมวดเดียวกัน', 'info');
+      return;
+    }
+    setCustomSymptoms((current) => [...current, { category, symptom }]);
+    setCustomSymptomDrafts((current) => ({ ...current, [category]: '' }));
+  };
+
+  const removeCustomSymptom = (index: number) => {
+    setCustomSymptoms((current) => current.filter((_, i) => i !== index));
+  };
 
   const toggleSymptom = (id: string) => {
     setSelectedSymptomIds((current) =>
@@ -422,6 +449,8 @@ export const VisitPage: React.FC = () => {
   const resetForm = () => {
     clearRecipient();
     setSelectedSymptomIds([]);
+    setCustomSymptoms([]);
+    setCustomSymptomDrafts({ TRAUMA: '', NON_TRAUMA: '' });
     setSymptomSearch('');
     setExpandedSymptomCategories(['NON_TRAUMA']);
     setOtherSymptom('');
@@ -451,6 +480,7 @@ export const VisitPage: React.FC = () => {
     const vitals = buildVitals();
     if (!hasVisitClinicalContent({
       symptoms: selectedSymptomIds,
+      customSymptoms: customSymptoms.map((item) => item.symptom),
       otherSymptom,
       note,
       assessment,
@@ -459,7 +489,7 @@ export const VisitPage: React.FC = () => {
     })) {
       Swal.fire(
         'ข้อมูล Clinical ยังไม่ครบ',
-        'กรุณาระบุอาการ สัญญาณชีพ การดูแล บันทึก หรือผลการประเมินอย่างน้อย 1 รายการ',
+        'กรุณาระบุอาการ รายละเอียดเพิ่มเติม การดูแล บันทึก หรือผลการประเมินอย่างน้อย 1 รายการ โดย Vital Signs เป็นข้อมูลไม่บังคับ',
         'warning'
       );
       return;
@@ -529,7 +559,7 @@ export const VisitPage: React.FC = () => {
       text: [
         `ผู้รับบริการ: ${selectedRecipient.recipientName}`,
         `ประเภท: ${RECIPIENT_LABELS[selectedRecipient.recipientType]}`,
-        `อาการ: ${selectedSymptoms.map((x) => x.symptom).join(', ') || otherSymptom || '-'}`,
+        `อาการ: ${[...selectedSymptoms.map((x) => x.symptom), ...customSymptoms.map((x) => x.symptom), otherSymptom.trim()].filter(Boolean).join(', ') || '-'}`,
         `Visit Category: ${derivedCategory || '-'}`,
         `Clinical Alert: ${clinicalAlert}`,
         `Disposition: ${dispositionLabel}`,
@@ -562,6 +592,7 @@ export const VisitPage: React.FC = () => {
             ? selectedRecipient.recipientId
             : '',
         symptomIds: selectedSymptomIds,
+        customSymptoms,
         otherSymptom: otherSymptom.trim(),
         note: note.trim(),
         assessment: assessment.trim(),
@@ -1015,11 +1046,11 @@ export const VisitPage: React.FC = () => {
               </p>
             </div>
 
-            {selectedSymptoms.length > 0 && (
+            {(selectedSymptoms.length > 0 || customSymptoms.length > 0) && (
               <div className="symptom-selected-summary" aria-label="อาการที่เลือก">
                 <div className="symptom-selected-heading">
                   <strong>อาการที่เลือก</strong>
-                  <span>{selectedSymptoms.length} รายการ</span>
+                  <span>{selectedSymptoms.length + customSymptoms.length} รายการ</span>
                 </div>
                 <div className="symptom-selected-list">
                   {selectedSymptoms.map((item) => (
@@ -1032,6 +1063,17 @@ export const VisitPage: React.FC = () => {
                       aria-label={`นำ ${item.symptom} ออกจากรายการอาการที่เลือก`}
                     >
                       <span>{item.symptom}</span><span aria-hidden="true">×</span>
+                    </button>
+                  ))}
+                  {customSymptoms.map((item, index) => (
+                    <button
+                      key={`custom-${item.category}-${index}`}
+                      type="button"
+                      className="symptom-selected-chip"
+                      onClick={() => removeCustomSymptom(index)}
+                      aria-label={`นำ ${item.symptom} ออกจากรายการอาการ ${CATEGORY_LABELS[item.category]}`}
+                    >
+                      <span>{CATEGORY_LABELS[item.category]} · {item.symptom}</span><span aria-hidden="true">×</span>
                     </button>
                   ))}
                 </div>
@@ -1051,15 +1093,18 @@ export const VisitPage: React.FC = () => {
               </span>
             </div>
 
-            {symptomCatalog.length > 0 && <div className="symptom-category-list">
+            <div className="symptom-category-list">
               {(['NON_TRAUMA','TRAUMA','OTHER'] as SymptomCategory[]).map((category) => {
+                const customSymptomCategory: CustomSymptomCategory | null =
+                  category === 'TRAUMA' || category === 'NON_TRAUMA' ? category : null;
                 const matches = filteredSymptomsByCategory[category];
                 const selectedCount = symptomsByCategory[category]
-                  .filter((item) => selectedSymptomIds.includes(item.symptomId)).length;
+                  .filter((item) => selectedSymptomIds.includes(item.symptomId)).length +
+                  customSymptoms.filter((item) => item.category === category).length;
                 const isExpanded = expandedSymptomCategories.includes(category);
                 const panelId = `symptom-panel-${category.toLowerCase()}`;
                 const triggerId = `symptom-trigger-${category.toLowerCase()}`;
-                if (normalizedSymptomSearch && matches.length === 0) return null;
+                if (normalizedSymptomSearch && matches.length === 0 && !customSymptomCategory) return null;
                 return (
                   <section className="symptom-category" key={category}>
                     <h3 className="symptom-category-heading">
@@ -1105,11 +1150,68 @@ export const VisitPage: React.FC = () => {
                           );
                         })}
                       </div>
+                      {customSymptomCategory && (
+                        <div className="custom-symptom-entry" style={{ marginTop: 12 }}>
+                          <label className="form-label" htmlFor={`custom-symptom-${customSymptomCategory.toLowerCase()}`}>
+                            เพิ่มอาการ Free text ในหมวด {CATEGORY_LABELS[customSymptomCategory]}
+                          </label>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <input
+                              id={`custom-symptom-${customSymptomCategory.toLowerCase()}`}
+                              className="form-control"
+                              value={customSymptomDrafts[customSymptomCategory]}
+                              maxLength={200}
+                              onChange={(event) => setCustomSymptomDrafts((current) => ({
+                                ...current,
+                                [customSymptomCategory]: event.target.value
+                              }))}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  addCustomSymptom(customSymptomCategory);
+                                }
+                              }}
+                              placeholder="ระบุอาการที่ไม่มีในรายการ"
+                              aria-label={`อาการ Free text ${CATEGORY_LABELS[customSymptomCategory]}`}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              onClick={() => addCustomSymptom(customSymptomCategory)}
+                              disabled={!customSymptomDrafts[customSymptomCategory].trim()}
+                            >
+                              + เพิ่ม
+                            </button>
+                          </div>
+                          {customSymptoms.filter((item) => item.category === customSymptomCategory).length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                              {customSymptoms.map((item, index) => item.category === customSymptomCategory ? (
+                                <span
+                                  className="symptom-selected-chip"
+                                  key={`custom-${item.category}-${index}`}
+                                >
+                                  {item.symptom}
+                                  <button
+                                    type="button"
+                                    onClick={() => removeCustomSymptom(index)}
+                                    aria-label={`ลบอาการ ${item.symptom}`}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ) : null)}
+                            </div>
+                          )}
+                          <small style={{ color: '#64748b' }}>
+                            ระบบจะบันทึกหมวดตามที่เลือก และไม่ประเมิน Clinical Alert ให้อัตโนมัติ
+                          </small>
+                        </div>
+                      )}
                     </div>
                   </section>
                 );
               })}
-            </div>}
+            </div>
 
             {!loadingSymptoms && symptomCatalog.length === 0 && (
               <div className="symptom-empty-state" role="status">
@@ -1144,6 +1246,7 @@ export const VisitPage: React.FC = () => {
               />
             </div>
 
+            <div style={{ color: '#64748b', fontSize: '.84rem', marginBottom: 8 }}>Vital Signs (ไม่บังคับ) — กรอกเฉพาะค่าที่ประเมินได้</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 10 }}>
               {vitalInput('Temperature', temperature, setTemperature, '°C', 30, 45)}
               {vitalInput('Weight', weight, setWeight, 'kg', 1, 300)}
@@ -1286,7 +1389,7 @@ export const VisitPage: React.FC = () => {
               <div style={{ background: '#fdecec', color: '#991b1b', border: '1px solid #b91c1c', borderRadius: 8, padding: 12, marginBottom: 12 }}>
                 <strong>🚨 EMERGENCY TRANSFER</strong>
                 <div style={{ fontSize: '.84rem', marginTop: 6, lineHeight: 1.5 }}>
-                  กรุณาตรวจสอบ Vital Signs, Assessment, Intervention และ Referral / Transfer Note ก่อน Complete
+                  กรุณาตรวจสอบ Assessment, Intervention และ Referral / Transfer Note ก่อน Complete; บันทึก Vital Signs เพิ่มได้ตามข้อมูลที่ประเมิน (ไม่บังคับ)
                 </div>
               </div>
             )}

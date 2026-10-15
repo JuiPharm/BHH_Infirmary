@@ -9,6 +9,8 @@ Branch: `feature/p4-recipient-notification-dashboard`
 - Free Text Visit with recipient snapshot.
 - Free Text allergy safety before drug dispensing.
 - Controlled symptom catalog with multi-symptom selection.
+- Optional Vital Signs; blank and partial values do not block a Visit.
+- Categorized custom symptom entries under Trauma / Non-Trauma; categories remain controlled, custom text receives no automatic clinical alert, and the append-only `Custom Symptoms` snapshot preserves the category.
 - Derived Visit Category precedence: TRAUMA → NON_TRAUMA → OTHER.
 - Clinical Alert Level independent from category.
 - Backend referral/emergency notification trigger after a successful visit transaction.
@@ -21,7 +23,7 @@ Branch: `feature/p4-recipient-notification-dashboard`
 - Request-cancellation logic to prevent stale master search results.
 - Regression test suite `backend/tests/p4Safety.test.mjs` executed in CI.
 - Dashboard V2 with one shared visit filter context.
-- API contract bump to `2.4.1`.
+- API contract bump to `2.4.2` for categorized custom symptom snapshots.
 
 ## Compatibility
 
@@ -44,5 +46,7 @@ Free Text recipients without a stable ID count as distinct visits in Unique Reci
 - Perform responsive and keyboard UX testing on Desktop, Tablet and Mobile, including long Thai names.
 - Verify Dashboard V2 counts against production Sheet samples.
 - Verify Student / Teacher / Staff / Free Text visits from the deployed Apps Script Web App.
+- Verify optional/partial Vital Signs for routine and referral visits.
+- Verify categorized custom Trauma / Non-Trauma symptom persistence and reporting.
 
 Do not merge to production until the release gate in `docs/DEPLOYMENT.md` is complete.

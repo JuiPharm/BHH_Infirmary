@@ -5,14 +5,14 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 
 const root = resolve(import.meta.dirname, '../..');
-const source = ['backend/30_Recipients.gs','backend/60_Notification.gs','backend/70_DashboardP4.gs']
+const source = ['backend/30_Recipients.gs','backend/40_ClinicalP4.gs','backend/60_Notification.gs','backend/70_DashboardP4.gs']
   .map(x => readFileSync(resolve(root,x),'utf8')).join('\n');
 
 function makeContext() {
   const ctx = vm.createContext({
     console,
     SHEETS:{STUDENTS:'STUDENTS',STAFF_MASTER:'STAFF_MASTER',
-      DISPENSE_HEADER:'DISPENSE_HEADER',NOTIFICATION_LOG:'NOTIFICATION_LOG'},
+      DISPENSE_HEADER:'DISPENSE_HEADER',NOTIFICATION_LOG:'NOTIFICATION_LOG',SYMPTOMS:'SYMPTOMS'},
     HEADERS:{STAFF_MASTER:['Staff ID','Full Name','Recipient Type','Department','Status','Updated At']},
     LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},
     Utilities:{getUuid:()=> '12345678-1234-1234-1234-123456789abc'},
@@ -23,6 +23,7 @@ function makeContext() {
     now_:()=> '2026-10-14 10:00:00',
     normalizeItemType_:(v)=>v === 'MEDICAL_SUPPLY' ? 'MEDICAL_SUPPLY' : 'DRUG',
     isActiveStatus_:(v)=>!v || v === 'ACTIVE',
+    isActive_:(v)=>!v || ['ACTIVE','TRUE','1','YES'].includes(String(v).toUpperCase()),
     truncateAfterRow_:()=>{},
   });
   vm.runInContext(source,ctx);
@@ -43,6 +44,42 @@ test('Student medication review is checked against current server-side allergy',
   assert.doesNotThrow(()=>c.validateStudentDrugSafetyForDispense_(
     recipient,{studentSafetyAcknowledged:true,studentDrugAllergySnapshot:'Penicillin'},drugs));
   assert.doesNotThrow(()=>c.validateStudentDrugSafetyForDispense_(recipient,{},[]));
+});
+
+test('Categorized custom symptoms persist with controlled categories and no auto alert',()=>{
+  const c=makeContext();
+  c.rows_=(sheet)=>sheet==='SYMPTOMS' ? [
+    {'Symptom ID':'T1',Symptom:'บาดแผล',Category:'TRAUMA',Active:'TRUE','Clinical Alert Level':'NORMAL'}
+  ] : [];
+  const result=c.resolveVisitSymptoms_({
+    symptomIds:['T1'],
+    customSymptoms:[
+      {category:'TRAUMA',symptom:'ปวดไหล่หลังชน'},
+      {category:'NON_TRAUMA',symptom:'คลื่นไส้'}
+    ]
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.symptoms)),['บาดแผล','ปวดไหล่หลังชน','คลื่นไส้']);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.customSymptoms)),[
+    {category:'TRAUMA',symptom:'ปวดไหล่หลังชน'},
+    {category:'NON_TRAUMA',symptom:'คลื่นไส้'}
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.categories)),['TRAUMA','NON_TRAUMA']);
+  assert.equal(result.derivedCategory,'TRAUMA');
+  assert.equal(result.clinicalAlertLevel,'NORMAL');
+});
+
+test('Custom symptom category is restricted to Trauma and Non-Trauma',()=>{
+  const c=makeContext();
+  c.rows_=()=>[];
+  assert.throws(()=>c.resolveVisitSymptoms_({customSymptoms:[
+    {category:'FREE_TEXT',symptom:'unclassified'}
+  ]}),/INVALID_SYMPTOM_CATEGORY/);
+});
+
+test('Visit schema appends categorized custom symptoms without reordering existing fields',()=>{
+  const source=readFileSync(resolve(root,'backend/Code.gs'),'utf8');
+  const header=source.match(/DISPENSE_HEADER:\[([^\]]+)\]/)[1];
+  assert.match(header,/'Clinical Alert Level','Custom Symptoms'$/);
 });
 
 test('Free-text names without stable IDs do not collapse two people into one KPI',()=>{
