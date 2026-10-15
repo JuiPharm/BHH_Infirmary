@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
-import { api } from '../../api';
+import { api, getErrorMessage } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 
 interface NotificationLogRecord {
@@ -14,6 +14,8 @@ interface NotificationLogRecord {
   'Sent At': string;
   'Error Message': string;
 }
+
+const normalizeStatus = (value: string): string => String(value || '').trim().toUpperCase();
 
 const STATUS_TEXT: Record<string, string> = {
   SENT: 'ส่งสำเร็จ',
@@ -56,10 +58,14 @@ export const NotificationLogPage: React.FC = () => {
   useEffect(() => { void load(); }, [session?.token]);
 
   const retry = async (item: NotificationLogRecord) => {
-    if (!session?.token || item.Status !== 'FAILED') return;
+    if (!session?.token || normalizeStatus(item.Status) !== 'FAILED') return;
+    const target = item.Recipient?.trim() || 'ผู้รับจาก CONFIG';
+    const recipientNote = item.Recipient?.trim()
+      ? `Visit: ${item['Visit ID']} · ไปยัง ${target}`
+      : `Visit: ${item['Visit ID']} · ช่องผู้รับใน log ว่าง ระบบจะใช้ผู้รับที่กำหนดใน CONFIG (${target})`;
     const confirm = await Swal.fire({
       title: 'ยืนยัน Retry Email?',
-      text: `Visit: ${item['Visit ID']} · ไปยัง ${item.Recipient || 'ไม่ระบุผู้รับ'}`,
+      text: recipientNote,
       icon: 'warning', showCancelButton: true,
       confirmButtonText: 'Retry 1 ครั้ง', cancelButtonText: 'ยกเลิก'
     });
@@ -68,10 +74,12 @@ export const NotificationLogPage: React.FC = () => {
     try {
       const outcome = await api<{status: string}>('retryNotification',
         {notificationId:item['Notification ID']}, session.token, undefined, 30000, true);
+      const resultStatus = normalizeStatus(outcome.status);
+      const detail = outcome.error ? `\nรายละเอียด: ${getErrorMessage(outcome.error)}` : '';
       await Swal.fire({
-        icon: outcome.status === 'SENT' ? 'success' : 'warning',
+        icon: resultStatus === 'SENT' ? 'success' : 'warning',
         title: 'ผลการ Retry',
-        text: `สถานะ: ${STATUS_TEXT[outcome.status] || outcome.status}`
+        text: `สถานะ: ${STATUS_TEXT[resultStatus] || outcome.status}${detail}`
       });
       await load();
     } catch (err) {
@@ -186,24 +194,27 @@ export const NotificationLogPage: React.FC = () => {
             </thead>
             <tbody>
               {records.map(row => {
-                const uncertain = ['UNKNOWN','SENDING'].includes(row.Status);
+                const status = normalizeStatus(row.Status);
+                const uncertain = ['UNKNOWN','SENDING'].includes(status);
                 return (
                   <tr key={row['Notification ID']} style={{ borderBottom:'1px solid #e2e8f0' }}>
                     <td style={{ padding:10 }}>{row['Visit ID']}</td>
                     <td style={{ padding:10 }}>{row['Notification Type']}</td>
                     <td style={{ padding:10, overflowWrap:'anywhere' }}>{row.Recipient || '—'}</td>
-                    <td style={{ padding:10, fontWeight:600, color: uncertain ? '#b91c1c' : row.Status === 'SENT' ? '#15803d' : '#b45309' }}>
-                      {STATUS_TEXT[row.Status] || row.Status}
+                    <td style={{ padding:10, fontWeight:600, color: uncertain ? '#b91c1c' : status === 'SENT' ? '#15803d' : '#b45309' }}>
+                      {STATUS_TEXT[status] || row.Status}
                       {row['Error Message'] && <div style={{ fontWeight:400, fontSize:'.78rem', overflowWrap:'anywhere' }}>{row['Error Message']}</div>}
                     </td>
                     <td style={{ padding:10 }}>{row['Attempt Count']}</td>
                     <td style={{ padding:10 }}>{row['Created At']}<div>{row['Sent At'] || ''}</div></td>
                     <td style={{ padding:10 }}>
-                      {canRetry && row.Status === 'FAILED'
+                      {status === 'FAILED' && canRetry
                         ? <button className="btn btn-outline btn-sm" disabled={!!busyId}
                             onClick={() => void retry(row)}>
                             {busyId === row['Notification ID'] ? 'กำลัง Retry...' : 'Retry'}
                           </button>
+                        : status === 'FAILED' && !canRetry
+                          ? <span title="ต้องมีสิทธิ์ NURSE, ADMIN หรือ SUPER_ADMIN">ต้องมีสิทธิ์ Retry</span>
                         : role === 'SUPER_ADMIN' && uncertain
                           ? <button className="btn btn-outline btn-sm"
                               disabled={!!busyId}
