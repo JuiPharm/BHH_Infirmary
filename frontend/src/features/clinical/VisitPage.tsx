@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
 import { api } from '../../api';
 import { StudentSafetyCard } from '../../components/StudentSafetyCard';
+import { StudentSafetyEditor } from '../../components/StudentSafetyEditor';
 import { useAuth } from '../../context/AuthContext';
 import { normalizeItemType } from '../../domain/stock';
 import { hasVisitClinicalContent } from '../../domain/visit';
@@ -79,7 +80,7 @@ const emptyAllergy: FreeTextDrugAllergy = {
 };
 
 export const VisitPage: React.FC = () => {
-  const { session } = useAuth();
+  const { session, isRole } = useAuth();
 
   const [recipientQuery, setRecipientQuery] = useState('');
   const [recipients, setRecipients] = useState<Recipient[]>([]);
@@ -96,6 +97,7 @@ export const VisitPage: React.FC = () => {
   const [safetyProfile, setSafetyProfile] = useState<StudentSafetyProfile | null>(null);
   const [loadingSafety, setLoadingSafety] = useState(false);
   const [studentSafetyReviewed, setStudentSafetyReviewed] = useState(false);
+  const [editingSafety, setEditingSafety] = useState(false);
 
   const [symptomCatalog, setSymptomCatalog] = useState<SymptomCatalogItem[]>([]);
   const [loadingSymptoms, setLoadingSymptoms] = useState(false);
@@ -323,6 +325,7 @@ export const VisitPage: React.FC = () => {
   };
 
   const selectRecipient = (recipient: Recipient) => {
+    setEditingSafety(false);
     setSelectedRecipient(recipient);
     setStudentSafetyReviewed(false);
     setRecipientQuery(recipient.recipientName);
@@ -347,6 +350,7 @@ export const VisitPage: React.FC = () => {
   };
 
   const clearRecipient = () => {
+    setEditingSafety(false);
     setSelectedRecipient(null);
     setSafetyProfile(null);
     setStudentSafetyReviewed(false);
@@ -859,7 +863,28 @@ export const VisitPage: React.FC = () => {
           {selectedRecipient?.recipientType === 'STUDENT' &&
             selectedRecipient.recipientSource === 'STUDENT_MASTER' && (
               <>
-            <StudentSafetyCard profile={safetyProfile} loading={loadingSafety} compact />
+            {editingSafety && safetyProfile && session?.token ? (
+              <StudentSafetyEditor
+                profile={safetyProfile}
+                token={session.token}
+                onSaved={(updated) => {
+                  setSafetyProfile(updated);
+                  setEditingSafety(false);
+                  // A safety update invalidates the user's previous review.
+                  setStudentSafetyReviewed(false);
+                }}
+                onCancel={() => setEditingSafety(false)}
+              />
+            ) : (
+              <StudentSafetyCard
+                profile={safetyProfile}
+                loading={loadingSafety}
+                compact
+                onEdit={isRole(['NURSE', 'ADMIN', 'SUPER_ADMIN']) && safetyProfile
+                  ? () => setEditingSafety(true)
+                  : undefined}
+              />
+            )}
             <label style={{
               display: 'flex', alignItems: 'flex-start', gap: 10, padding: 12,
               background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: 8, marginBottom: 12

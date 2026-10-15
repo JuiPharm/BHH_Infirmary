@@ -117,6 +117,8 @@ function sendNotificationById_(notificationId,s,isRetry) {
     const type = String(log['Notification Type'] || '').toUpperCase();
     const cfg = notificationConfigForDisposition_(visit.Disposition);
     if (!cfg || cfg.type !== type) throw new Error('INVALID_NOTIFICATION_VISIT');
+    // Manual retries must obey the same active CONFIG switch as first sends.
+    if (!getConfigBoolean_(cfg.enabledKey,false)) throw new Error('NOTIFICATION_EMAIL_DISABLED');
     message = buildReferralEmail_(visit,type,cfg.prefixKey);
     to = normalizeEmailList_(String(log.Recipient || ''));
     cc = normalizeEmailList_(String(log.CC || ''));
