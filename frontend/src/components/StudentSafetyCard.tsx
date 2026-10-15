@@ -54,7 +54,7 @@ export const StudentSafetyCard: React.FC<StudentSafetyCardProps> = ({
         <span className="card-title">⚠ Student Safety Profile</span>
         {onEdit && (
           <button className="btn btn-outline btn-sm" type="button" onClick={onEdit}>
-            แก้ไขข้อมูล
+            แก้ไขข้อมูลความปลอดภัย
           </button>
         )}
       </div>
