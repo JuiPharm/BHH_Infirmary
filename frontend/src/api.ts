@@ -76,6 +76,7 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   ALLERGY_DETAIL_REQUIRED: 'กรณีมีประวัติแพ้ยา กรุณาระบุยา/กลุ่มยา อาการแพ้ และหมายเหตุ',
   NOTIFICATION_ALREADY_SENT: 'Notification นี้ส่งสำเร็จแล้ว ไม่อนุญาตให้ส่งซ้ำ',
   NOTIFICATION_NOT_FOUND: 'ไม่พบ Notification ID นี้ใน Log ของ API ที่กำลังใช้งาน',
+  NOTIFICATION_EMAIL_DISABLED: 'Retry ไม่ได้ เพราะ CONFIG ปิดการส่ง Email หรือรายการ CONFIG ไม่ Active',
   NOTIFICATION_RECIPIENT_NOT_CONFIGURED: 'Retry ไม่ได้: ไม่พบผู้รับใน Log หรือ CONFIG กรุณาตั้งค่าอีเมลและเปิด Active ของรายการผู้รับ',
   INVALID_NOTIFICATION_VISIT: 'Retry ไม่ได้: Disposition ของ Visit ไม่ตรงกับชนิด Notification',
   VISIT_NOT_FOUND: 'Retry ไม่ได้: ไม่พบ Visit ที่เชื่อมกับ Notification นี้',
