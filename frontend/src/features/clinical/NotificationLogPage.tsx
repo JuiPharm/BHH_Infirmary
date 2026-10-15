@@ -203,7 +203,7 @@ export const NotificationLogPage: React.FC = () => {
                     <td style={{ padding:10, overflowWrap:'anywhere' }}>{row.Recipient || '—'}</td>
                     <td style={{ padding:10, fontWeight:600, color: uncertain ? '#b91c1c' : status === 'SENT' ? '#15803d' : '#b45309' }}>
                       {STATUS_TEXT[status] || row.Status}
-                      {row['Error Message'] && <div style={{ fontWeight:400, fontSize:'.78rem', overflowWrap:'anywhere' }}>{row['Error Message']}</div>}
+                      {row['Error Message'] && <div style={{ fontWeight:400, fontSize:'.78rem', overflowWrap:'anywhere' }}>{getErrorMessage(row['Error Message'])}</div>}
                     </td>
                     <td style={{ padding:10 }}>{row['Attempt Count']}</td>
                     <td style={{ padding:10 }}>{row['Created At']}<div>{row['Sent At'] || ''}</div></td>
