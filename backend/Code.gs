@@ -12,7 +12,7 @@ const HEADERS = {
   STAFF_MASTER:['Staff ID','Full Name','Recipient Type','Department','Status','Updated At'],
   ITEM_MASTER:['Item Code','Item Type','Generic Name','Trade Name','QTY','Unit','Minimum Stock','Maximum Stock','Unit Cost','Active/Inactive'],
   STOCK_LOT:['Stock Lot ID','Item Code','Lot Number','Expiry Date','Received Date','Received Qty','Current Qty','Unit Cost','Supplier','Status'],
-  DISPENSE_HEADER:['Visit ID','Student ID','Visit Date','Visit Time','Symptoms','Other Symptom','Note','Staff ID','Status','Created At','Client Transaction ID','Temperature','BP Systolic','BP Diastolic','Pulse','Respiratory Rate','SpO2','Weight','Assessment','Interventions','Disposition','Outcome Note','Completed At','Recipient ID','Recipient Name','Recipient Type','Recipient Department/Class','Recipient Source','Recipient Contact','Drug Allergy Status','Drug Allergy Drug/Group','Drug Allergy Reaction','Drug Allergy Note','Symptom IDs','Symptom Categories','Derived Visit Category','Clinical Alert Level'],
+  DISPENSE_HEADER:['Visit ID','Student ID','Visit Date','Visit Time','Symptoms','Other Symptom','Note','Staff ID','Status','Created At','Client Transaction ID','Temperature','BP Systolic','BP Diastolic','Pulse','Respiratory Rate','SpO2','Weight','Assessment','Interventions','Disposition','Outcome Note','Completed At','Recipient ID','Recipient Name','Recipient Type','Recipient Department/Class','Recipient Source','Recipient Contact','Drug Allergy Status','Drug Allergy Drug/Group','Drug Allergy Reaction','Drug Allergy Note','Symptom IDs','Symptom Categories','Derived Visit Category','Clinical Alert Level','Custom Symptoms'],
   DISPENSE_ITEMS:['Dispense Item ID','Visit ID','Item Code','Item Type','Item Name','Qty','Unit','Created At'],
   STOCK_TRANSACTION:['Transaction ID','Transaction Type','Reference ID','Item Code','Stock Lot ID','Qty','Before Qty','After Qty','Unit Cost','Reason','Staff ID','Timestamp'],
   STOCK_COUNT:['Count ID','Count Line ID','Count Date','Stock Lot ID','Item Code','System Qty','Counted Qty','Variance','Reason','Staff ID','Created At'],
@@ -466,12 +466,8 @@ function submitVisit_(p,s) {
   const interventions = rawInterventions.filter(function(x,idx,arr){ return arr.indexOf(x) === idx; });
   const disposition = String(p.disposition || '').trim().toUpperCase();
   const rawVitals = p.vitals || {};
-  const hasVitals = Object.keys(rawVitals).some(function(k){
-    return rawVitals[k] !== undefined && rawVitals[k] !== null && String(rawVitals[k]).trim() !== '';
-  });
-
   if (!clientTx) throw new Error('INVALID_INPUT');
-  if (!symptoms.length && !String(p.otherSymptom || '').trim() && !String(p.note || '').trim() && !assessment && !interventions.length && !hasVitals) {
+  if (!symptoms.length && !String(p.otherSymptom || '').trim() && !String(p.note || '').trim() && !assessment && !interventions.length) {
     throw new Error('VISIT_CLINICAL_DATA_REQUIRED');
   }
   if (!disposition) throw new Error('DISPOSITION_REQUIRED');
@@ -662,7 +658,8 @@ function submitVisit_(p,s) {
       'Symptom IDs':JSON.stringify(symptomSelection.symptomIds),
       'Symptom Categories':JSON.stringify(symptomSelection.categories),
       'Derived Visit Category':symptomSelection.derivedCategory,
-      'Clinical Alert Level':symptomSelection.clinicalAlertLevel
+      'Clinical Alert Level':symptomSelection.clinicalAlertLevel,
+      'Custom Symptoms':JSON.stringify(symptomSelection.customSymptoms)
     };
     const currentHeader = header.getRange(1,1,1,header.getLastColumn()).getValues()[0].map(String);
     const hrow = currentHeader.map(function(name){
@@ -1803,7 +1800,7 @@ function humanError_(code) {
     ROLE_ESCALATION_DENIED:'ไม่มีสิทธิ์กำหนดหรือจัดการ Role ระดับนี้',
     CANNOT_DEACTIVATE_SELF:'ไม่สามารถระงับบัญชีของตนเองได้',
     TRANSACTION_ROLLBACK_FAILED:'เกิดข้อผิดพลาดร้ายแรงระหว่างย้อนคืนรายการ กรุณาหยุดใช้งานรายการนี้และให้ผู้ดูแลตรวจสอบ Audit Log',
-    VISIT_CLINICAL_DATA_REQUIRED:'กรุณาระบุอาการ บันทึก หรือผลการประเมินอย่างน้อย 1 รายการ',
+    VISIT_CLINICAL_DATA_REQUIRED:'กรุณาระบุอาการ รายละเอียดเพิ่มเติม บันทึก หรือผลการประเมินอย่างน้อย 1 รายการ',
     DISPOSITION_REQUIRED:'กรุณาระบุผลลัพธ์หลังรับบริการ (Disposition)',
     INVALID_DISPOSITION:'ค่า Disposition ไม่ถูกต้อง',
     INVALID_VITAL_SIGN:'ค่าชีพจรหรือสัญญาณชีพไม่ถูกต้อง',
@@ -1828,6 +1825,8 @@ function humanError_(code) {
     IMPORT_TOO_LARGE:'จำนวนข้อมูลนำเข้ามากเกินไป',
     INVALID_SYMPTOM:'อาการที่เลือกไม่อยู่ใน Symptom Master หรือถูกปิดใช้งาน',
     INVALID_SYMPTOM_CATEGORY:'หมวดอาการไม่ถูกต้อง',
+    INVALID_CUSTOM_SYMPTOM:'กรุณาระบุอาการ Free text ในหมวด Trauma หรือ Non-Trauma',
+    TOO_MANY_CUSTOM_SYMPTOMS:'เพิ่มอาการ Free text ได้ไม่เกิน 20 รายการต่อ Visit',
     ALLERGY_STATUS_REQUIRED:'ก่อนจ่ายยาใน Free Text Visit ต้องระบุสถานะแพ้ยา',
     ALLERGY_DETAIL_REQUIRED:'กรณีมีประวัติแพ้ยา กรุณาระบุยา/กลุ่มยา อาการแพ้ และหมายเหตุ',
     NOTIFICATION_NOT_FOUND:'ไม่พบ Notification Log',
