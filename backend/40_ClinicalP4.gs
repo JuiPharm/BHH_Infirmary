@@ -126,6 +126,21 @@ function resolveVisitSymptoms_(p) {
   const ids = [];
   const names = [];
   const categories = [];
+  const customSymptoms = [];
+  const requestedCustomSymptoms = Array.isArray(p && p.customSymptoms) ? p.customSymptoms : [];
+  if (requestedCustomSymptoms.length > 20) throw new Error('TOO_MANY_CUSTOM_SYMPTOMS');
+  const customKeys = {};
+  requestedCustomSymptoms.forEach(function(item){
+    if (!item || typeof item !== 'object') throw new Error('INVALID_CUSTOM_SYMPTOM');
+    const category = String(item.category || '').trim().toUpperCase();
+    const symptom = limitedText_(item.symptom,200);
+    if (!symptom) throw new Error('INVALID_CUSTOM_SYMPTOM');
+    if (category !== 'TRAUMA' && category !== 'NON_TRAUMA') throw new Error('INVALID_SYMPTOM_CATEGORY');
+    const key = category + '|' + symptom.toLocaleLowerCase();
+    if (customKeys[key]) return;
+    customKeys[key] = true;
+    customSymptoms.push({category:category,symptom:symptom});
+  });
   let alert = 'NORMAL';
   selected.forEach(function(row){
     const id = String(row['Symptom ID'] || '').trim();
@@ -138,10 +153,15 @@ function resolveVisitSymptoms_(p) {
     if (categories.indexOf(category) < 0) categories.push(category);
     if (clinicalAlertRank_(level) > clinicalAlertRank_(alert)) alert = level;
   });
+  customSymptoms.forEach(function(item){
+    if (names.indexOf(item.symptom) < 0) names.push(item.symptom);
+    if (categories.indexOf(item.category) < 0) categories.push(item.category);
+  });
 
   return {
     symptomIds:ids,
     symptoms:names,
+    customSymptoms:customSymptoms,
     categories:categories,
     derivedCategory:deriveVisitCategory_(categories),
     clinicalAlertLevel:alert
