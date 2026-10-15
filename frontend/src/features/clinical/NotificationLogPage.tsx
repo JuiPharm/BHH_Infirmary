@@ -72,7 +72,7 @@ export const NotificationLogPage: React.FC = () => {
     if (!confirm.isConfirmed) return;
     setBusyId(item['Notification ID']);
     try {
-      const outcome = await api<{status: string}>('retryNotification',
+      const outcome = await api<{status: string; error?: string}>('retryNotification',
         {notificationId:item['Notification ID']}, session.token, undefined, 30000, true);
       const resultStatus = normalizeStatus(outcome.status);
       const detail = outcome.error ? `\nรายละเอียด: ${getErrorMessage(outcome.error)}` : '';
