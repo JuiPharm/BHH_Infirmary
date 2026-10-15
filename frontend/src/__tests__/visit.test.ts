@@ -2,11 +2,28 @@ import { describe, expect, it } from 'vitest';
 import { hasVisitClinicalContent } from '../domain/visit';
 
 describe('Visit clinical content validation', () => {
-  it('accepts a vitals-only visit', () => {
+  it('does not treat Vital Signs as required clinical content by themselves', () => {
     expect(hasVisitClinicalContent({
       symptoms: [],
       interventions: [],
       vitals: { temperature: 37.2 }
+    })).toBe(false);
+  });
+
+  it('accepts optional or partial Vital Signs alongside clinical content', () => {
+    expect(hasVisitClinicalContent({
+      symptoms: ['Headache'],
+      interventions: [],
+      vitals: { temperature: 37.2 }
+    })).toBe(true);
+  });
+
+  it('accepts categorized Free text symptoms as clinical content', () => {
+    expect(hasVisitClinicalContent({
+      symptoms: [],
+      customSymptoms: ['shoulder pain after fall'],
+      interventions: [],
+      vitals: {}
     })).toBe(true);
   });
 
