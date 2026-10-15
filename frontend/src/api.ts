@@ -4,7 +4,7 @@ export const DEFAULT_GAS_URL =
   import.meta.env.VITE_GAS_URL ||
   'https://script.google.com/macros/s/AKfycbwC7zeux5tDqr_C-2AwtllHIFDXkXyvVQ0J7BoI-3u55xQ6vSslP5VxwZCxFKjZmB_h/exec';
 
-export const REQUIRED_API_VERSION = '2.4.1';
+export const REQUIRED_API_VERSION = '2.4.2';
 
 export interface BackendHealth {
   success: boolean;
