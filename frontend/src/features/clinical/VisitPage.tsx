@@ -1389,7 +1389,7 @@ export const VisitPage: React.FC = () => {
               <div style={{ background: '#fdecec', color: '#991b1b', border: '1px solid #b91c1c', borderRadius: 8, padding: 12, marginBottom: 12 }}>
                 <strong>🚨 EMERGENCY TRANSFER</strong>
                 <div style={{ fontSize: '.84rem', marginTop: 6, lineHeight: 1.5 }}>
-                  กรุณาตรวจสอบ Vital Signs, Assessment, Intervention และ Referral / Transfer Note ก่อน Complete
+                  กรุณาตรวจสอบ Assessment, Intervention และ Referral / Transfer Note ก่อน Complete; บันทึก Vital Signs เพิ่มได้ตามข้อมูลที่ประเมิน (ไม่บังคับ)
                 </div>
               </div>
             )}
