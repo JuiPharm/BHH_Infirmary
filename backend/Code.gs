@@ -22,7 +22,7 @@ const HEADERS = {
 };
 
 const ROLES = ['NURSE','ADMIN','MANAGER','SUPER_ADMIN'];
-const API_VERSION = '2.4.1';
+const API_VERSION = '2.4.2';
 
 function doGet(e) {
   return out_({success:true,service:'School Nurse System API',apiVersion:API_VERSION,timestamp:now_()});
