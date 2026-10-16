@@ -246,7 +246,18 @@ function requireSession_(token) {
   if (!t) throw new Error('AUTH_REQUIRED');
   const cached = CacheService.getScriptCache().get('sess:'+t);
   if (!cached) throw new Error('INVALID_SESSION');
-  return JSON.parse(cached);
+  const session = JSON.parse(cached);
+  // Session tokens do not grant permanent roles. Fail closed after deactivation
+  // or role modification even if the 6-hour GAS cache entry is still valid.
+  const liveUser = rows_(SHEETS.USERS).find(function(u){
+    return String(u['Staff ID'] || '').trim() === String(session.staffId || '').trim();
+  });
+  if (!liveUser || !isActive_(liveUser.Active) ||
+      String(liveUser.Role || '').trim().toUpperCase() !== String(session.role || '').trim().toUpperCase()) {
+    CacheService.getScriptCache().remove('sess:'+t);
+    throw new Error('INVALID_SESSION');
+  }
+  return session;
 }
 
 function hash_(password,salt) {
