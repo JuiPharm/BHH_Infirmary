@@ -140,6 +140,22 @@ function studentDepartmentClass_(row) {
 
 // Must be verified again on the backend; a loaded frontend profile alone
 // cannot authorize medication dispensing for a master-backed student.
+// Narrow rule, subject to oncology/clinical pharmacist review before GAS Production deployment.
+// Source: FDA AMOXIL prescribing information Section 4 (2024).
+// This rule does NOT constitute a general allergen-drug terminology engine.
+function knownPenicillinDrugConflict_(recordedAllergy,plans) {
+  const allergy = String(recordedAllergy || '').toUpperCase();
+  const penicillinAllergy = /\\b(PENICILLIN|PENICILLINS|AMOXICILLIN|AMPICILLIN)\\b/.test(allergy);
+  if (!penicillinAllergy) return false;
+  return (plans || []).some(function(plan) {
+    const master = plan && plan.master || {};
+    if (normalizeItemType_(master['Item Type'] || '') !== 'DRUG') return false;
+    // Match generic only to avoid misleading brand-name substring collisions.
+    const generic = String(master['Generic Name'] || '').toUpperCase();
+    return /\\b(AMOXICILLIN|AMPICILLIN|PENICILLIN)\\b/.test(generic);
+  });
+}
+
 function validateStudentDrugSafetyForDispense_(recipient,p,plans) {
   if (!recipient || recipient.recipientSource !== 'STUDENT_MASTER') return;
   const hasDrug = (plans || []).some(function(plan){
@@ -156,6 +172,9 @@ function validateStudentDrugSafetyForDispense_(recipient,p,plans) {
   const reviewedSnapshot = String(p.studentDrugAllergySnapshot || '').trim();
   if (p.studentSafetyAcknowledged !== true || reviewedSnapshot !== latestAllergy)
     throw new Error('STUDENT_SAFETY_REVIEW_REQUIRED');
+  // Acknowledgement of a matching allergy does not authorize dispensing.
+  if (knownPenicillinDrugConflict_(latestAllergy,plans))
+    throw new Error('DRUG_ALLERGY_HARD_STOP');
 }
 
 function validateFreeTextAllergyForDispense_(recipient,p,plans) {
@@ -186,6 +205,8 @@ function validateFreeTextAllergyForDispense_(recipient,p,plans) {
     if (!result.drugGroup || !result.reaction || !result.note) {
       throw new Error('ALLERGY_DETAIL_REQUIRED');
     }
+    if (knownPenicillinDrugConflict_(result.drugGroup,plans))
+      throw new Error('DRUG_ALLERGY_HARD_STOP');
   }
   return result;
 }
