@@ -22,6 +22,12 @@ export async function handleRequest(request,env,ctx,dependencies={}){
   try{const raw=await request.text();if(new TextEncoder().encode(raw).byteLength>MAX_BODY_BYTES)return error('PAYLOAD_TOO_LARGE',413);input=JSON.parse(raw);}catch{return error('INVALID_INPUT',400);}
   if(!input||typeof input!=='object'||Array.isArray(input)||typeof input.action!=='string'||!ALLOWED_ACTIONS.has(input.action))return error('UNKNOWN_ACTION',404);
   const action=input.action,payload=input.payload&&typeof input.payload==='object'&&!Array.isArray(input.payload)?input.payload:{};
+  // Fail closed: public Sandbox may exercise authentication only. Clinical/inventory never passes.
+  const mode=String(env.GATEWAY_MODE||'BLOCK_ALL');
+  if(mode!=='UAT_AUTH_ONLY'&&mode!=='LEGACY_GAS_SINGLE_WRITER')return error('PREVIEW_POST_DISABLED',403);
+  if(mode==='UAT_AUTH_ONLY'&&!['login','getSession','logout'].includes(action))
+   return error('PREVIEW_ACTION_DISABLED',403);
+
   if(action==='login'){
    if(typeof payload.staffId!=='string'||typeof payload.password!=='string'||!payload.staffId.trim()||!payload.password)return error('INVALID_CREDENTIALS',401);
    let result;try{result=await gas({action,payload,token:null},{timeoutMs:20000});}catch(ex){return failUpstream(action,ex);}
