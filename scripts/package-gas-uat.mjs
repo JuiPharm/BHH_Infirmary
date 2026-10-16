@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 
 // Publish only code. Never package Google Sheet data, Apps Script credentials or patient records.
 const root=resolve(import.meta.dirname,'..');
-const sourceFiles=['Code.gs','30_Recipients.gs','35_AllergyRules.gs','40_ClinicalP4.gs','60_Notification.gs','70_DashboardP4.gs'];
+const sourceFiles=['Code.gs','30_Recipients.gs','35_AllergyRules.gs','36_AllergySafetyDryRun.gs','40_ClinicalP4.gs','60_Notification.gs','70_DashboardP4.gs'];
 const output=join(root,'dist','gas-sandbox-uat');
 mkdirSync(output,{recursive:true});
 const manifest={application:'BHH Infirmary',target:'SYNTHETIC_GAS_SANDBOX_ONLY',files:[],createdBy:'scripts/package-gas-uat.mjs'};
@@ -33,7 +33,7 @@ writeFileSync(join(output,'INSTALL_SANDBOX_ONLY.txt'),[
  '   no direct edits to active clinical rule rows; never reuse the prior one-shot transaction ID.',
  '',
  'Never combine a generated unified GAS Code.gs with existing separate .gs files;',
- 'this package contains only the six intended distinct Apps Script source files.',
+ 'this package contains only the seven intended distinct Apps Script source files.',
  'Any client-facing Cloudflare admin UI should remain blocked until GAS Sandbox integration UAT passes.'
 ].join('\n')+'\n');
 console.log('Created synthetic-only Apps Script source package with',manifest.files.length,'files.');
