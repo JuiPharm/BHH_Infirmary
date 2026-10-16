@@ -27,7 +27,7 @@ export async function handleRequest(request,env,ctx,dependencies={}){
   const action=input.action,payload=input.payload&&typeof input.payload==='object'&&!Array.isArray(input.payload)?input.payload:{};
   // Fail closed: public Sandbox may exercise authentication only. Clinical/inventory never passes.
   const mode=String(env.GATEWAY_MODE||'BLOCK_ALL');
-  if(!['UAT_AUTH_ONLY','UAT_READ_ONLY','UAT_RULE_SINGLE','UAT_WRITE_SINGLE','LEGACY_GAS_SINGLE_WRITER'].includes(mode))
+  if(!['UAT_AUTH_ONLY','UAT_READ_ONLY','UAT_RULE_DRAFT_ONLY','UAT_RULE_PUBLISH_ONLY','UAT_WRITE_SINGLE','LEGACY_GAS_SINGLE_WRITER'].includes(mode))
    return error('PREVIEW_POST_DISABLED',403);
   const authActions=['login','getSession','logout'];
   const uatReadActions=['getStock','getStockLots','getSymptoms','getInventoryIntegrity','getDispenseHistory','getDashboardV2','getDrugAllergyRules'];
@@ -38,9 +38,12 @@ export async function handleRequest(request,env,ctx,dependencies={}){
   if(mode==='UAT_WRITE_SINGLE'&&!authActions.includes(action)&&!uatReadActions.includes(action)&&action!=='submitSyntheticUatVisit')
    return error('PREVIEW_ACTION_DISABLED',403);
   const allergyRuleUatActions=['submitSyntheticAllergyDraft','publishSyntheticAllergyRule'];
-  if(mode==='UAT_RULE_SINGLE'&&!authActions.includes(action)&&!uatReadActions.includes(action)&&!allergyRuleUatActions.includes(action))
+  if(mode==='UAT_RULE_DRAFT_ONLY'&&!authActions.includes(action)&&!uatReadActions.includes(action)&&action!=='submitSyntheticAllergyDraft')
    return error('PREVIEW_ACTION_DISABLED',403);
-  if(allergyRuleUatActions.includes(action)&&mode!=='UAT_RULE_SINGLE')return error('PREVIEW_ACTION_DISABLED',403);
+  if(mode==='UAT_RULE_PUBLISH_ONLY'&&!authActions.includes(action)&&!uatReadActions.includes(action)&&action!=='publishSyntheticAllergyRule')
+   return error('PREVIEW_ACTION_DISABLED',403);
+  if(action==='submitSyntheticAllergyDraft'&&mode!=='UAT_RULE_DRAFT_ONLY')return error('PREVIEW_ACTION_DISABLED',403);
+  if(action==='publishSyntheticAllergyRule'&&mode!=='UAT_RULE_PUBLISH_ONLY')return error('PREVIEW_ACTION_DISABLED',403);
   if(action==='submitSyntheticUatVisit'&&mode!=='UAT_WRITE_SINGLE')return error('PREVIEW_ACTION_DISABLED',403);
 
   if(action==='login'){
