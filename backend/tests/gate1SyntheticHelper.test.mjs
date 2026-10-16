@@ -81,7 +81,8 @@ test('Gate1 refuses missing synthetic test Master or changed drug name',()=>{
  assert.equal(state.calls.length,0);
 });
 test('Gate1 aborts immediately if the submitVisit call leaves a changed Sheet, even after expected rejection',()=>{
- const {ctx,state}=harness();state.mutation=true;
+ const {ctx,state}=harness();
+ ctx.submitVisit_=()=>{state.calls.push({});state.mutation=true;throw Error('DRUG_ALLERGY_HARD_STOP');};
  assert.throws(()=>ctx.runGate1ClinicalNegativeUat(),/UAT_GATE1_UNEXPECTED_WRITE_STOP/);
  assert.equal(state.calls.length,1);
 });
