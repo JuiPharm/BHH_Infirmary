@@ -242,3 +242,24 @@ test('STAFF_MASTER: supply-only visit does not require drug allergy assessment',
   [{master:{'Item Type':'MEDICAL_SUPPLY','Generic Name':'Gauze'}}]));
  assert.equal(h.state.writes,0);
 });
+
+test('revokes GAS session after staff role change or deactivation',()=>{
+ const h=harness(),cache=new Map();
+ const key='sess:TEST-ONLY-TOKEN';
+ cache.set(key,JSON.stringify({staffId:'UAT-TEST-ADMIN',role:'SUPER_ADMIN',name:'Mock'}));
+ h.data.USERS=[{'Staff ID':'UAT-TEST-ADMIN',Role:'SUPER_ADMIN',Active:true}];
+ h.ctx.CacheService={getScriptCache:()=>({
+  get:k=>cache.get(k)||null,
+  remove:k=>cache.delete(k)
+ })};
+ assert.equal(h.ctx.requireSession_('TEST-ONLY-TOKEN').role,'SUPER_ADMIN');
+ h.data.USERS[0].Role='NURSE';
+ assert.throws(()=>h.ctx.requireSession_('TEST-ONLY-TOKEN'),/INVALID_SESSION/);
+ assert.equal(cache.has(key),false);
+ h.data.USERS[0].Role='SUPER_ADMIN';
+ cache.set(key,JSON.stringify({staffId:'UAT-TEST-ADMIN',role:'SUPER_ADMIN'}));
+ h.data.USERS[0].Active=false;
+ assert.throws(()=>h.ctx.requireSession_('TEST-ONLY-TOKEN'),/INVALID_SESSION/);
+ assert.equal(cache.has(key),false);
+ assert.equal(h.state.writes,0);
+});
