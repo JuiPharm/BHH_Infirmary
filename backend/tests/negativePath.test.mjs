@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 // Run the ACTUAL GAS clinical code against an entirely in-memory Sheets harness.
 // These tests must never contact production GAS or write to a live spreadsheet.
 const root=resolve(import.meta.dirname,'../..');
-const source=['backend/Code.gs','backend/30_Recipients.gs','backend/40_ClinicalP4.gs']
+const source=['backend/Code.gs','backend/30_Recipients.gs','backend/35_AllergyRules.gs','backend/40_ClinicalP4.gs']
   .map(x=>readFileSync(resolve(root,x),'utf8')).join('\n');
 const lotHeaders=['Stock Lot ID','Item Code','Lot Number','Expiry Date','Received Date','Received Qty','Current Qty','Unit Cost','Supplier','Status'];
 const item=(code,type,name)=>({'Item Code':code,'Item Type':type,'Generic Name':name,'Trade Name':'UAT '+name,
@@ -53,7 +53,7 @@ function harness(){
    deleteRows(){state.writes++;throw Error('UNEXPECTED_DELETE_IN_NEGATIVE_TEST');}
   };
  }
- ctx.getSpreadsheet_=()=>({});
+ ctx.getSpreadsheet_=()=>({getSheetByName:()=>null});
  ctx.getSheet_=mockSheet;
  ctx.ensureHeaders_=()=>{state.headers++};
  ctx.rows_=(table)=>(data[table]||[]).map(x=>Array.isArray(x)?[...x]:{...x});
