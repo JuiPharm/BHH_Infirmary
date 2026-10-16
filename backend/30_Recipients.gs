@@ -140,6 +140,22 @@ function studentDepartmentClass_(row) {
 
 // Must be verified again on the backend; a loaded frontend profile alone
 // cannot authorize medication dispensing for a master-backed student.
+// Narrow rule, subject to oncology/clinical pharmacist review before GAS Production deployment.
+// Source: FDA AMOXIL prescribing information Section 4 (2024).
+// This rule does NOT constitute a general allergen-drug terminology engine.
+function knownPenicillinDrugConflict_(recordedAllergy,plans) {
+  const allergy = String(recordedAllergy || '').toUpperCase();
+  const penicillinAllergy = /\b(PENICILLIN|PENICILLINS|AMOXICILLIN|AMPICILLIN)\b/.test(allergy);
+  if (!penicillinAllergy) return false;
+  return (plans || []).some(function(plan) {
+    const master = plan && plan.master || {};
+    if (normalizeItemType_(master['Item Type'] || '') !== 'DRUG') return false;
+    // Match generic only to avoid misleading brand-name substring collisions.
+    const generic = String(master['Generic Name'] || '').toUpperCase();
+    return /\b(AMOXICILLIN|AMPICILLIN|PENICILLIN)\b/.test(generic);
+  });
+}
+
 function validateStudentDrugSafetyForDispense_(recipient,p,plans) {
   if (!recipient || recipient.recipientSource !== 'STUDENT_MASTER') return;
   const hasDrug = (plans || []).some(function(plan){
@@ -153,9 +169,15 @@ function validateStudentDrugSafetyForDispense_(recipient,p,plans) {
   });
   if (!student) throw new Error('STUDENT_NOT_FOUND');
   const latestAllergy = String(student['Drug Allergy'] || '').trim();
+  // A blank/explicitly unknown master history is not evidence of NKDA.
+  // Require a documented allergy history or explicit NKDA before drug dispensing.
+  if (!latestAllergy || /^(UNKNOWN|UNVERIFIED|NOT KNOWN|ไม่ทราบ)$/i.test(latestAllergy))
+    throw new Error('STUDENT_ALLERGY_STATUS_UNVERIFIED');
   const reviewedSnapshot = String(p.studentDrugAllergySnapshot || '').trim();
   if (p.studentSafetyAcknowledged !== true || reviewedSnapshot !== latestAllergy)
     throw new Error('STUDENT_SAFETY_REVIEW_REQUIRED');
+  // Acknowledgement of a matching allergy does not authorize dispensing.
+  enforceDrugAllergyRules_(latestAllergy,plans);
 }
 
 function validateFreeTextAllergyForDispense_(recipient,p,plans) {
@@ -165,7 +187,9 @@ function validateFreeTextAllergyForDispense_(recipient,p,plans) {
     reaction:'',
     note:''
   };
-  if (!recipient || recipient.recipientSource !== 'FREE_TEXT') return result;
+  // STAFF_MASTER does not carry a drug-allergy field. Require a visit-level
+  // allergy assessment exactly as for FREE_TEXT; master identity alone is unsafe.
+  if (!recipient || (recipient.recipientSource !== 'FREE_TEXT' && recipient.recipientSource !== 'STAFF_MASTER')) return result;
 
   const hasDrug = (plans || []).some(function(plan){
     return normalizeItemType_(plan && plan.master && plan.master['Item Type']) === 'DRUG';
@@ -186,6 +210,7 @@ function validateFreeTextAllergyForDispense_(recipient,p,plans) {
     if (!result.drugGroup || !result.reaction || !result.note) {
       throw new Error('ALLERGY_DETAIL_REQUIRED');
     }
+    enforceDrugAllergyRules_(result.drugGroup,plans);
   }
   return result;
 }

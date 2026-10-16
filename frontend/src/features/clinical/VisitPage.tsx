@@ -491,7 +491,7 @@ export const VisitPage: React.FC = () => {
       return;
     }
 
-    if (selectedRecipient.recipientSource === 'FREE_TEXT') {
+    if (selectedRecipient.recipientSource === 'FREE_TEXT' || selectedRecipient.recipientSource === 'STAFF_MASTER') {
       const allergyError = validateFreeTextDrugAllergy(freeTextAllergy, hasDrug);
       if (allergyError) {
         Swal.fire('Drug Allergy Safety', allergyError, 'warning');
@@ -570,7 +570,7 @@ export const VisitPage: React.FC = () => {
         disposition,
         outcomeNote: outcomeNote.trim(),
         drugAllergy:
-          selectedRecipient.recipientSource === 'FREE_TEXT'
+          (selectedRecipient.recipientSource === 'FREE_TEXT' || selectedRecipient.recipientSource === 'STAFF_MASTER')
             ? freeTextAllergy
             : undefined,
         studentSafetyAcknowledged:
@@ -634,11 +634,15 @@ export const VisitPage: React.FC = () => {
       loadItems();
     } catch (err: any) {
       const message = err?.message || 'เกิดข้อผิดพลาดในการบันทึก Visit';
+      const allergyHardStop = err?.errorCode === 'DRUG_ALLERGY_HARD_STOP' || /DRUG_ALLERGY_HARD_STOP/.test(message);
       const mayHaveCommitted =
+        err?.errorCode === 'OPERATION_STATUS_UNKNOWN' ||
         /TIMEOUT|NETWORK|ไม่สามารถเชื่อมต่อ|ใช้เวลานาน|Duplicate|duplicate|ถูกประมวลผล/i.test(message);
       Swal.fire({
-        title: mayHaveCommitted ? 'ยังยืนยันผลการบันทึกไม่ได้' : 'บันทึกไม่สำเร็จ',
-        text: mayHaveCommitted
+        title: allergyHardStop ? 'หยุดจ่ายยา — พบความเสี่ยงแพ้ยา' : mayHaveCommitted ? 'ยังยืนยันผลการบันทึกไม่ได้' : 'บันทึกไม่สำเร็จ',
+        text: allergyHardStop
+          ? message + '\nห้ามจ่ายยารายการนี้จนกว่าจะได้รับการประเมินจากบุคลากรทางคลินิกที่มีอำนาจ'
+          : mayHaveCommitted
           ? message + '\nห้ามบันทึก Visit ซ้ำทันที โปรดตรวจสอบประวัติ Visit ก่อน เพื่อป้องกันการจ่ายสต็อกซ้ำ'
           : message,
         icon: mayHaveCommitted ? 'warning' : 'error'
@@ -906,13 +910,13 @@ export const VisitPage: React.FC = () => {
           </>
             )}
 
-          {selectedRecipient?.recipientSource === 'FREE_TEXT' && (
+          {(selectedRecipient?.recipientSource === 'FREE_TEXT' || selectedRecipient?.recipientSource === 'STAFF_MASTER') && (
             <section className="card">
               <div className="card-header">
-                <span className="card-title">Drug Allergy Safety — Free Text Visit</span>
+                <span className="card-title">Drug Allergy Safety — Free Text / Teacher / Staff</span>
               </div>
               <p style={{ color: '#64748b', fontSize: '.85rem' }}>
-                หากมีการจ่ายยา ต้องระบุสถานะแพ้ยาอย่างชัดเจน ระบบจะไม่ตีความช่องว่างว่าเป็น NKDA
+                การจ่ายยาให้ Free Text / Teacher / Staff ต้องซักประวัติแพ้ยาใน Visit นี้ทุกครั้ง เพราะข้อมูล Staff Master ไม่มีช่องประวัติแพ้ยา ระบบจะไม่ตีความช่องว่างว่าเป็น NKDA
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {([
@@ -923,7 +927,7 @@ export const VisitPage: React.FC = () => {
                   <label key={value} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <input
                       type="radio"
-                      name="free-text-allergy"
+                      name="recipient-visit-allergy"
                       checked={freeTextAllergy.status === value}
                       onChange={() => setFreeTextAllergy({ ...freeTextAllergy, status: value })}
                     />

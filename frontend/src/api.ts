@@ -1,8 +1,8 @@
 import { ApiResponse } from './types';
 
-export const DEFAULT_GAS_URL =
-  import.meta.env.VITE_GAS_URL ||
-  'https://script.google.com/macros/s/AKfycbwC7zeux5tDqr_C-2AwtllHIFDXkXyvVQ0J7BoI-3u55xQ6vSslP5VxwZCxFKjZmB_h/exec';
+// Same-origin P1 Gateway. Do not expose GAS endpoint to browser.
+export const DEFAULT_GAS_URL = '/api/action';
+export const DEFAULT_HEALTH_URL = '/api/health';
 
 export const REQUIRED_API_VERSION = '2.4.1';
 
@@ -10,11 +10,12 @@ export interface BackendHealth {
   success: boolean;
   service?: string;
   apiVersion?: string;
+  buildId?: string;
   timestamp?: string;
 }
 
 export async function getBackendHealth(
-  url: string = DEFAULT_GAS_URL,
+  url: string = DEFAULT_HEALTH_URL,
   timeoutMs: number = 8000
 ): Promise<BackendHealth> {
   const controller = new AbortController();
@@ -37,6 +38,10 @@ export async function getBackendHealth(
 const ERROR_MESSAGES_TH: Record<string, string> = {
   AUTH_REQUIRED: 'กรุณาเข้าสู่ระบบก่อนดำเนินการ',
   INVALID_SESSION: 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่',
+  OPERATION_STATUS_UNKNOWN: 'ยังยืนยันผลการบันทึกไม่ได้ กรุณาตรวจสอบ Visit History ก่อนทำรายการซ้ำ',
+  GATEWAY_NOT_CONFIGURED: 'ระบบ Gateway ยังไม่ได้ตั้งค่า ห้ามทำรายการจนกว่าผู้ดูแลจะแก้ไข',
+  UPSTREAM_UNAVAILABLE: 'ไม่สามารถเชื่อมต่อระบบข้อมูลได้',
+  API_VERSION_MISMATCH: 'เวอร์ชันของระบบฐานข้อมูลไม่ตรงกับที่รองรับ',
   INVALID_CREDENTIALS: 'Staff ID หรือ Password ไม่ถูกต้อง',
   ACCESS_DENIED: 'คุณไม่มีสิทธิ์ในการดำเนินการนี้',
   STUDENT_NOT_FOUND: 'ไม่พบข้อมูลนักเรียนในระบบ',
@@ -74,6 +79,16 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   INVALID_SYMPTOM_CATEGORY: 'หมวดอาการไม่ถูกต้อง',
   ALLERGY_STATUS_REQUIRED: 'ก่อนจ่ายยาใน Free Text Visit ต้องระบุสถานะแพ้ยา',
   ALLERGY_DETAIL_REQUIRED: 'กรณีมีประวัติแพ้ยา กรุณาระบุยา/กลุ่มยา อาการแพ้ และหมายเหตุ',
+  DRUG_ALLERGY_HARD_STOP: 'ระบบหยุดการจ่ายยา: พบความเสี่ยงแพ้ยาที่บันทึกไว้ กรุณาทบทวนรายการยาและปรึกษาเภสัชกรก่อนดำเนินการ',
+  ALLERGY_RULES_UNAVAILABLE: 'ไม่สามารถอ่านฐานข้อมูลกฎแพ้ยาได้ ระบบระงับการจ่ายยาจนกว่าผู้ดูแลจะตรวจสอบ',
+  VISIT_SCHEMA_NOT_READY: 'โครงสร้างข้อมูล Visit ไม่พร้อม กรุณาติดต่อผู้ดูแลเพื่อตรวจสอบการปรับปรุงฐานข้อมูล',
+  ALLERGY_RULES_CONFIGURATION_ERROR: 'กฎแพ้ยาที่ Publish มีข้อมูลผิดพลาด ระบบหยุดจ่ายยาเพื่อความปลอดภัย กรุณาติดต่อผู้ดูแล',
+  INVALID_ALLERGY_RULE: 'รูปแบบชื่อสารที่แพ้หรือชื่อสามัญยาไม่ถูกต้อง (ใช้ | แยกชื่อ)',
+  ALLERGY_RULE_REFERENCE_REQUIRED: 'กรุณาระบุแหล่งอ้างอิงทางคลินิกของกฎ',
+  ALLERGY_RULE_REVIEW_REQUIRED: 'ต้องยืนยันการทบทวนทางคลินิกก่อน Publish',
+  ACTIVE_RULE_IMMUTABLE_CREATE_NEW: 'กฎที่ Publish แล้วแก้ไขโดยตรงไม่ได้ โปรดสร้าง Draft ฉบับใหม่',
+  ALLERGY_RULE_NOT_DRAFT: 'สามารถ Publish ได้เฉพาะกฎ Draft',
+  LOCKED_ALLERGY_RULE: 'กฎแพ้ยาพื้นฐานถูกล็อกและไม่อนุญาตให้แก้ไข',
   NOTIFICATION_ALREADY_SENT: 'Notification นี้ส่งสำเร็จแล้ว ไม่อนุญาตให้ส่งซ้ำ',
   NOTIFICATION_NOT_FOUND: 'ไม่พบ Notification ID นี้ใน Log ของ API ที่กำลังใช้งาน',
   NOTIFICATION_EMAIL_DISABLED: 'Retry ไม่ได้ เพราะ CONFIG ปิดการส่ง Email หรือรายการ CONFIG ไม่ Active',
@@ -82,6 +97,7 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   VISIT_NOT_FOUND: 'Retry ไม่ได้: ไม่พบ Visit ที่เชื่อมกับ Notification นี้',
   INVALID_DATE_RANGE: 'ช่วงวันที่ไม่ถูกต้อง',
   STUDENT_SAFETY_REVIEW_REQUIRED: 'กรุณาตรวจสอบข้อมูลแพ้ยานักเรียนอีกครั้ง เพราะข้อมูลล่าสุดอาจมีการเปลี่ยนแปลง',
+  STUDENT_ALLERGY_STATUS_UNVERIFIED: 'ประวัติแพ้ยาของนักเรียนยังไม่ระบุหรือยังยืนยันไม่ได้ กรุณาทบทวนและบันทึกข้อมูลใน Student Safety Profile ก่อนจ่ายยา',
   NOTIFICATION_STATUS_UNCERTAIN: 'สถานะ Email ไม่แน่นอน ต้องตรวจสอบผู้รับก่อนส่งซ้ำ',
   NOTIFICATION_RETRY_NOT_ALLOWED: 'Retry ได้เฉพาะรายการสถานะ FAILED เท่านั้น',
   NOTIFICATION_STATUS_INVALID: 'สถานะ Notification ไม่รองรับการ Retry',
@@ -111,6 +127,7 @@ const CACHEABLE_ACTIONS = new Set([
   'getDashboardData',
   'getDashboardSummary',
   'getConfig',
+  'getDrugAllergyRules',
   'getUsers',
   'getInventoryIntegrity',
   'getStockCounts',
@@ -129,6 +146,8 @@ const MUTATION_ACTIONS = new Set([
   'resetPassword',
   'deactivateUser',
   'updateConfig',
+  'saveDrugAllergyRule',
+  'publishDrugAllergyRule',
   'updateStockLotStatus',
   'submitStockCount',
   'importStaffMaster',
@@ -172,19 +191,14 @@ export async function api<T>(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // Google Apps Script requires text/plain and redirect follow
+    // The HttpOnly session cookie is the credential; browser token is an inert compatibility marker.
     response = await fetch(url, {
       method: 'POST',
-      mode: 'cors',
-      redirect: 'follow',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8'
-      },
-      body: JSON.stringify({
-        action,
-        payload,
-        token
-      }),
+      mode: 'same-origin',
+      credentials: 'same-origin',
+      redirect: 'error',
+      headers: { 'Content-Type': 'application/json', 'X-BHH-Gateway': '1' },
+      body: JSON.stringify({action,payload,token: token ? 'gateway-session' : undefined}),
       signal: controller.signal
     });
   } catch (err: any) {
@@ -199,7 +213,12 @@ export async function api<T>(
   }
 
   if (!response.ok) {
-    throw new Error(`HTTP Error ${response.status}: ${response.statusText}`);
+    let payload: ApiResponse<T> | null = null;
+    try { payload = (await response.clone().json()) as ApiResponse<T>; } catch {}
+    const code = payload?.errorCode || 'SERVER_ERROR';
+    const err = new Error(getErrorMessage(code));
+    (err as any).errorCode = code;
+    throw err;
   }
 
   let json: ApiResponse<T>;

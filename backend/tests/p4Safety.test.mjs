@@ -5,14 +5,15 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 
 const root = resolve(import.meta.dirname, '../..');
-const source = ['backend/30_Recipients.gs','backend/60_Notification.gs','backend/70_DashboardP4.gs']
+const source = ['backend/30_Recipients.gs','backend/35_AllergyRules.gs','backend/60_Notification.gs','backend/70_DashboardP4.gs']
   .map(x => readFileSync(resolve(root,x),'utf8')).join('\n');
 
 function makeContext() {
   const ctx = vm.createContext({
     console,
     SHEETS:{STUDENTS:'STUDENTS',STAFF_MASTER:'STAFF_MASTER',
-      DISPENSE_HEADER:'DISPENSE_HEADER',NOTIFICATION_LOG:'NOTIFICATION_LOG'},
+      DISPENSE_HEADER:'DISPENSE_HEADER',NOTIFICATION_LOG:'NOTIFICATION_LOG',
+      ALLERGY_RULES:'DRUG_ALLERGY_RULES'},
     HEADERS:{STAFF_MASTER:['Staff ID','Full Name','Recipient Type','Department','Status','Updated At']},
     LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},
     Utilities:{getUuid:()=> '12345678-1234-1234-1234-123456789abc'},
@@ -26,6 +27,8 @@ function makeContext() {
     truncateAfterRow_:()=>{},
   });
   vm.runInContext(source,ctx);
+  // The read-only registry sheet exists in a correctly migrated clinical deployment.
+  ctx.getSpreadsheet_=()=>({getSheetByName:(name)=>name==='DRUG_ALLERGY_RULES'?{}:null});
   return ctx;
 }
 
@@ -216,22 +219,31 @@ test('Staff Master import rolls back preceding updates if a subsequent update fa
   assert.equal(grid[2][1],'Second');
 });
 
-test('Reconciliation never re-sends historical or future-dated visits',()=>{
+test('Reconciliation uses exact 72-hour timestamps and excludes earlier and future visits',()=>{
   const c=makeContext();
-  const now=new Date().toISOString().slice(0,10);
-  const sent=[];
-  c.Utilities.formatDate=(value)=>value.toISOString().slice(0,10);
+  const format=(d)=>d.toISOString().slice(0,19).replace('T',' ');
+  c.Utilities.formatDate=(d)=>format(d);
   c.getTimeZone_=()=> 'UTC';
   c.getConfigBoolean_=()=>true;
-  c.rows_=(name)=>name==='NOTIFICATION_LOG' ? [] : [
-    {'Visit ID':'Vold',Status:'COMPLETED',Disposition:'REFER_HOSPITAL','Visit Date':'2020-01-01'},
-    {'Visit ID':'Vnew',Status:'COMPLETED',Disposition:'REFER_HOSPITAL','Visit Date':now},
-    {'Visit ID':'Vfuture',Status:'COMPLETED',Disposition:'REFER_HOSPITAL','Visit Date':'2099-01-01'}
+  const within=format(new Date(Date.now()-60*60*1000));
+  const old=format(new Date(Date.now()-73*60*60*1000));
+  const recentDayOldHour=format(new Date(Date.now()-72*60*60*1000-15*60*1000));
+  const future=format(new Date(Date.now()+60*60*1000));
+  const sent=[];
+  const mk=(id,stamp)=>({
+    'Visit ID':id,Status:'COMPLETED',Disposition:'REFER_HOSPITAL',
+    'Created At':stamp,'Visit Date':stamp.slice(0,10),'Visit Time':stamp.slice(11)
+  });
+  c.rows_=(name)=>name==='NOTIFICATION_LOG'?[]:[
+    mk('Vold',old),mk('VwindowExpired',recentDayOldHour),
+    mk('Vrecent',within),mk('Vfuture',future),
+    {'Visit ID':'VnoTimestamp',Status:'COMPLETED',Disposition:'REFER_HOSPITAL',
+      'Visit Date':within.slice(0,10)}
   ];
   c.triggerReferralNotificationForVisit_=(id)=>{sent.push(id);return {status:'SENT'};};
   const out=c.reconcileNotifications_({limit:10},{role:'ADMIN',staffId:'A1'});
   assert.equal(out.data.checked,1);
-  assert.deepEqual(sent,['Vnew']);
+  assert.deepEqual(sent,['Vrecent']);
 });
 
 test('Retry API follows the success/data contract expected by the frontend',()=>{

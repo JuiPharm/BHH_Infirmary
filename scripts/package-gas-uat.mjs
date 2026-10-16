@@ -1,0 +1,61 @@
+import {readFileSync,writeFileSync,mkdirSync,copyFileSync} from 'node:fs';
+import {join,resolve} from 'node:path';
+import {createHash} from 'node:crypto';
+
+// Publish only code. Never package Google Sheet data, Apps Script credentials or patient records.
+const root=resolve(import.meta.dirname,'..');
+const sourceFiles=['Code.gs','30_Recipients.gs','35_AllergyRules.gs','36_AllergySafetyDryRun.gs','40_ClinicalP4.gs','60_Notification.gs','70_DashboardP4.gs'];
+const output=join(root,'dist','gas-sandbox-uat');
+mkdirSync(output,{recursive:true});
+const sourceText=readFileSync(join(root,'backend','Code.gs'),'utf8');
+const idMatch=sourceText.match(/const GAS_SOURCE_BUILD_ID\s*=\s*'([^']+)'/);
+if(!idMatch)throw Error('Missing GAS_SOURCE_BUILD_ID in Code.gs');
+const manifest={
+ application:'BHH Infirmary',
+ target:'SYNTHETIC_GAS_SANDBOX_ONLY',
+ apiVersion:'2.4.1',
+ gasBuildId:idMatch[1],
+ gitCommit:String(process.env.GITHUB_SHA||'LOCAL_NOT_ATTESTED'),
+ files:[],createdBy:'scripts/package-gas-uat.mjs'
+};
+for(const name of sourceFiles){
+ const source=join(root,'backend',name);
+ const data=readFileSync(source);
+ if(!data.length)throw Error('Empty GAS source: '+name);
+ copyFileSync(source,join(output,name));
+ manifest.files.push({file:name,sha256:createHash('sha256').update(data).digest('hex')});
+}
+// This extra file is a SANDBOX-ONLY editor helper, not part of production backend.
+const helperFile='37_Gate1ClinicalNegativeUat.gs';
+const helperContent=readFileSync(join(root,'scripts','gas-uat-helper',helperFile));
+copyFileSync(join(root,'scripts','gas-uat-helper',helperFile),join(output,helperFile));
+manifest.files.push({file:helperFile,sandboxEditorOnly:true,sha256:createHash('sha256').update(helperContent).digest('hex')});
+writeFileSync(join(output,'MANIFEST.json'),JSON.stringify(manifest,null,2)+'\n');
+writeFileSync(join(output,'INSTALL_SANDBOX_ONLY.txt'),[
+ 'BHH Infirmary - GAS SANDBOX UAT package. DO NOT COPY INTO PRODUCTION GAS.',
+ '',
+ '1. Open the dedicated GAS SANDBOX project (not the Production project).',
+ '2. Verify its Script Property SHEET_ID points to the synthetic UAT working copy.',
+ '3. Back up existing SANDBOX GAS source. Do not change or publish Production.',
+ '4. Replace each matching .gs source file with the corresponding package file;',
+ '   add 36_AllergySafetyDryRun.gs and SANDBOX-ONLY 37_Gate1ClinicalNegativeUat.gs (no duplicates).',
+ '5. Script Editor: Save all. Run syntax/authorized smoke check using a dedicated UAT account.',
+ '6. The DRUG_ALLERGY_RULES tab is already created in the synthetic working copy;',
+ '   do NOT rerun setupSystem() or seedUser() for this upgrade.',
+ '7. Deploy > Manage deployments > create NEW Sandbox deployment version (or edit sandbox deployment).',
+ '8. Keep referral/emergency email DISABLED, use synthetic patients and medicines only.',
+ '9. Confirm GET health API version, login, then read-only runSyntheticAllergySafetyCheck;',
+ '9a. Confirm GET health buildId exactly equals MANIFEST.json gasBuildId; archive GAS deployment/version ID.',
+ '10. Gate 1 only: backup the synthetic workbook, then manually run runGate1ClinicalNegativeUat',
+ '    from the isolated GAS SANDBOX Script Editor; this invokes the REAL submitVisit_',
+ '    function with 4 fixed rejection cases and verifies zero Sheet changes.',
+ '    The helper is NOT an API action, is NEVER to be copied into Production GAS.',
+ '    A regression could write synthetic data: STOP and reconcile if any failure.',
+ '    Confirm SUCCESS only if status PASS and all 4 checks PASS; never auto retry.',
+ '   the hard stop dry-run writes NO Visit/Stock and accepts NO caller-provided drugs;',
+ '',
+ 'Never combine a generated unified GAS Code.gs with existing separate .gs files;',
+ 'this package contains only the seven intended distinct Apps Script source files.',
+ 'Any client-facing Cloudflare admin UI should remain blocked until GAS Sandbox integration UAT passes.'
+].join('\n')+'\n');
+console.log('Created synthetic-only Apps Script source package with',manifest.files.length,'files.');

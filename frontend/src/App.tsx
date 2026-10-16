@@ -4,6 +4,7 @@ import { Header } from './components/Header';
 import { LoginPage } from './pages/LoginPage';
 import { VisitPage } from './features/clinical/VisitPage';
 import { NotificationLogPage } from './features/clinical/NotificationLogPage';
+import { AllergyRulesPage } from './features/clinical/AllergyRulesPage';
 import { StudentsPage } from './pages/StudentsPage';
 import { StockPage } from './pages/StockPage';
 import { DashboardV2Page } from './features/dashboard/DashboardV2Page';
@@ -133,6 +134,7 @@ export const AppContent: React.FC = () => {
         )}
         {currentTab === 'users' && ['ADMIN', 'SUPER_ADMIN'].includes(role) && <UsersPage />}
         {currentTab === 'config' && role === 'SUPER_ADMIN' && <ConfigPage />}
+        {currentTab === 'allergy-rules' && role === 'SUPER_ADMIN' && <AllergyRulesPage />}
       </main>
 
       <footer

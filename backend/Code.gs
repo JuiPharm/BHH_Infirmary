@@ -2,7 +2,7 @@ const SHEETS = {
   CONFIG:'CONFIG', USERS:'USERS', STUDENTS:'STUDENTS', STAFF_MASTER:'STAFF_MASTER', ITEM_MASTER:'ITEM_MASTER',
   STOCK_LOT:'STOCK_LOT', DISPENSE_HEADER:'DISPENSE_HEADER', DISPENSE_ITEMS:'DISPENSE_ITEMS',
   STOCK_TRANSACTION:'STOCK_TRANSACTION', STOCK_COUNT:'STOCK_COUNT', SYMPTOMS:'SYMPTOMS',
-  NOTIFICATION_LOG:'NOTIFICATION_LOG', AUDIT_LOG:'AUDIT_LOG'
+  NOTIFICATION_LOG:'NOTIFICATION_LOG', AUDIT_LOG:'AUDIT_LOG', ALLERGY_RULES:'DRUG_ALLERGY_RULES'
 };
 
 const HEADERS = {
@@ -18,14 +18,17 @@ const HEADERS = {
   STOCK_COUNT:['Count ID','Count Line ID','Count Date','Stock Lot ID','Item Code','System Qty','Counted Qty','Variance','Reason','Staff ID','Created At'],
   SYMPTOMS:['Symptom ID','Symptom','Category','Active','Sort Order','Clinical Alert Level','Updated At','Updated By'],
   NOTIFICATION_LOG:['Notification ID','Visit ID','Notification Type','Channel','Recipient','CC','Subject','Status','Attempt Count','Created At','Sent At','Error Message','Staff ID'],
-  AUDIT_LOG:['Log ID','Timestamp','Staff ID','Action','Module','Reference ID','Result','Client Info','User Agent']
+  AUDIT_LOG:['Log ID','Timestamp','Staff ID','Action','Module','Reference ID','Result','Client Info','User Agent'],
+  DRUG_ALLERGY_RULES:['Rule ID','Allergen Terms','Blocked Generic Terms','Reference','Status','Created By','Created At','Updated By','Updated At','Approved By','Approved At']
 };
 
 const ROLES = ['NURSE','ADMIN','MANAGER','SUPER_ADMIN'];
 const API_VERSION = '2.4.1';
+// Gate 0 deployment evidence. Version 2.4.1 alone cannot identify a GAS source revision.
+const GAS_SOURCE_BUILD_ID = 'BHHINF-P1-SAFETY-20261016-R2';
 
 function doGet(e) {
-  return out_({success:true,service:'School Nurse System API',apiVersion:API_VERSION,timestamp:now_()});
+  return out_({success:true,service:'School Nurse System API',apiVersion:API_VERSION,buildId:GAS_SOURCE_BUILD_ID,timestamp:now_()});
 }
 
 function doPost(e) {
@@ -91,6 +94,10 @@ function route_(r) {
     case 'importStudents': return importStudents_(r.payload || {}, session);
     case 'importStaffMaster': return importStaffMaster_(r.payload || {}, session);
     case 'importItems': return importItems_(r.payload || {}, session);
+    case 'getDrugAllergyRules': return getDrugAllergyRules_(session);
+    case 'runSyntheticAllergySafetyCheck': return runSyntheticAllergySafetyCheck_(session);
+    case 'saveDrugAllergyRule': return saveDrugAllergyRule_(r.payload || {},session);
+    case 'publishDrugAllergyRule': return publishDrugAllergyRule_(r.payload || {},session);
     case 'getConfig': return getConfig_(session);
     case 'updateConfig': return updateConfig_(r.payload || {}, session);
     case 'getNotificationLog': return getNotificationLog_(r.payload || {}, session);
@@ -239,7 +246,18 @@ function requireSession_(token) {
   if (!t) throw new Error('AUTH_REQUIRED');
   const cached = CacheService.getScriptCache().get('sess:'+t);
   if (!cached) throw new Error('INVALID_SESSION');
-  return JSON.parse(cached);
+  const session = JSON.parse(cached);
+  // Session tokens do not grant permanent roles. Fail closed after deactivation
+  // or role modification even if the 6-hour GAS cache entry is still valid.
+  const liveUser = rows_(SHEETS.USERS).find(function(u){
+    return String(u['Staff ID'] || '').trim() === String(session.staffId || '').trim();
+  });
+  if (!liveUser || !isActive_(liveUser.Active) ||
+      String(liveUser.Role || '').trim().toUpperCase() !== String(session.role || '').trim().toUpperCase()) {
+    CacheService.getScriptCache().remove('sess:'+t);
+    throw new Error('INVALID_SESSION');
+  }
+  return session;
 }
 
 function hash_(password,salt) {
@@ -446,6 +464,16 @@ function submitDispense_(p,s) {
   return submitVisit_(p,s);
 }
 
+// Read-only preflight: no rejected Visit may write even a header/format change.
+function assertVisitHeaderSchemaReady_(sheet) {
+  const columns = sheet.getLastColumn();
+  if (!columns || columns < HEADERS.DISPENSE_HEADER.length)
+    throw new Error('VISIT_SCHEMA_NOT_READY');
+  const present = sheet.getRange(1,1,1,columns).getValues()[0].map(String);
+  if (HEADERS.DISPENSE_HEADER.some(function(name){ return present.indexOf(name) < 0; }))
+    throw new Error('VISIT_SCHEMA_NOT_READY');
+}
+
 function submitVisit_(p,s) {
   if (!['NURSE','ADMIN','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
 
@@ -494,7 +522,9 @@ function submitVisit_(p,s) {
   try {
     const ss = getSpreadsheet_();
     const header = getSheet_(SHEETS.DISPENSE_HEADER);
-    ensureHeaders_(header, HEADERS.DISPENSE_HEADER);
+    // Clinical rejection must never migrate a spreadsheet or format its cells.
+    // setupSystem() owns schema changes; dispensing only verifies the migration.
+    assertVisitHeaderSchemaReady_(header);
     const detail = getSheet_(SHEETS.DISPENSE_ITEMS);
     const txn = getSheet_(SHEETS.STOCK_TRANSACTION);
     const lotSheet = getSheet_(SHEETS.STOCK_LOT);
@@ -671,8 +701,10 @@ function submitVisit_(p,s) {
 
     // Write stock first, then records. Rollback is attempted on any error.
     if (items.length) {
-      lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
+      // Mark a possible stock mutation before the RPC: a timeout/error after the
+      // remote sheet applied values must still trigger snapshot rollback.
       stockWritten = true;
+      lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
     }
     header.getRange(header.getLastRow()+1,1,1,hrow.length).setValues([hrow]);
     if (drows.length) {
@@ -1804,6 +1836,8 @@ function humanError_(code) {
     CANNOT_DEACTIVATE_SELF:'ไม่สามารถระงับบัญชีของตนเองได้',
     TRANSACTION_ROLLBACK_FAILED:'เกิดข้อผิดพลาดร้ายแรงระหว่างย้อนคืนรายการ กรุณาหยุดใช้งานรายการนี้และให้ผู้ดูแลตรวจสอบ Audit Log',
     VISIT_CLINICAL_DATA_REQUIRED:'กรุณาระบุอาการ บันทึก หรือผลการประเมินอย่างน้อย 1 รายการ',
+    VISIT_SCHEMA_NOT_READY:'โครงสร้างข้อมูล Visit ยังไม่พร้อม กรุณาติดต่อผู้ดูแลให้ตรวจสอบ Migration ก่อนใช้งาน',
+    ALLERGY_RULES_UNAVAILABLE:'ไม่พบฐานข้อมูลกฎแพ้ยาที่พร้อมใช้งาน ระบบระงับการจ่ายยาจนกว่าจะตรวจสอบและแก้ไข',
     DISPOSITION_REQUIRED:'กรุณาระบุผลลัพธ์หลังรับบริการ (Disposition)',
     INVALID_DISPOSITION:'ค่า Disposition ไม่ถูกต้อง',
     INVALID_VITAL_SIGN:'ค่าชีพจรหรือสัญญาณชีพไม่ถูกต้อง',

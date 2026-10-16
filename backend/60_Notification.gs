@@ -181,15 +181,19 @@ function reconcileNotifications_(p,s) {
   const logs = rows_(SHEETS.NOTIFICATION_LOG);
   const known = {};
   logs.forEach(function(x){ known[String(x['Visit ID'] || '')+':'+String(x['Notification Type'] || '')] = true; });
-  // Never bulk-send historical referrals when email is enabled for the
-  // first time. Recovery is limited to visits from the last 72 hours.
+  // Recovery is bounded to an exact 72-hour window; date-only comparison
+  // could replay nearly 24 extra hours of historical clinical referral mail.
+  // Records without a trustworthy timestamp are held for manual review.
   const cutoff = Utilities.formatDate(new Date(Date.now()-72*3600000),
-    getTimeZone_(),'yyyy-MM-dd');
-  const today = Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd');
+    getTimeZone_(),'yyyy-MM-dd HH:mm:ss');
+  const current = Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd HH:mm:ss');
   const missing = rows_(SHEETS.DISPENSE_HEADER).filter(function(v) {
     const cfg = notificationConfigForDisposition_(v.Disposition);
-    const date = String(v['Visit Date'] || '').trim();
-    return cfg && date >= cutoff && date <= today &&
+    const created = String(v['Created At'] || '').trim();
+    const combined = String(v['Visit Date'] || '').trim()+' '+String(v['Visit Time'] || '').trim();
+    const exact = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(created) ? created :
+      (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(combined) ? combined : '');
+    return cfg && exact && exact >= cutoff && exact <= current &&
       String(v.Status || '').toUpperCase() === 'COMPLETED' &&
       getConfigBoolean_(cfg.enabledKey,false) &&
       !known[String(v['Visit ID'] || '')+':'+cfg.type];

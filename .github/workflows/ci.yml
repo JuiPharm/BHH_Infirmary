@@ -32,6 +32,15 @@ jobs:
       - name: Run Apps Script behavior regression tests
         run: node --test backend/tests/*.test.mjs
 
+      - name: Check Cloudflare Gateway syntax
+        run: |
+          node --check cloudflare/worker/index.js
+          node --check cloudflare/worker/upstream.js
+          node --check cloudflare/worker/session.js
+
+      - name: Run Cloudflare Gateway security tests
+        run: node --test cloudflare/tests/*.test.mjs
+
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
