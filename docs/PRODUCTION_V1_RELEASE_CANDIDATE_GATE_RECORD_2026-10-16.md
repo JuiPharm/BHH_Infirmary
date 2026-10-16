@@ -14,7 +14,7 @@ Branch: `feature/cloudflare-gateway-precutover-20261016` / Draft PR #10.
 - `backend/Code.gs` `doGet`: `buildId=BHHINF-P1-SAFETY-20261016-R2`. `cloudflare/worker/index.js` forwards this read-only GAS fingerprint via Gateway `/api/health`; tests cover no credential leakage.
 - `scripts/package-gas-uat.mjs`: the synthetic-only 7-source-file package manifest includes `gasBuildId`, `gitCommit`, and per-file SHA-256 so Sandbox deployment provenance can be checked.
 
-**Latest verified CI:** 53/53 Apps Script tests and 46/46 Cloudflare tests plus frontend Vitest + TS/Vite build passed (workflow run 38921314853, candidate commit `8f2ed39d46eb86e0e10cf5564ecf78bc96f6ffc4`). GAS source package run 38921323682 SUCCESS. Check subsequent commits/workflows for exact latest provenance.
+**Latest verified CI (following Gate 1):** **62/62 Apps Script tests and 46/46 Cloudflare Gateway tests**, frontend Vitest, TypeScript and build PASS, [run 38931271650](https://github.com/JuiPharm/BHH_Infirmary/actions/runs/38931271650); [sandbox package SUCCESS 38931271644](https://github.com/JuiPharm/BHH_Infirmary/actions/runs/38931271644) at code/test commit `01e2767c8866893c87328f3266976f0831b6aa0b`. Subsequent documentation commits do not change executable code. Validate the head before deployment.
 
 ## Live evidence, deliberately limited
 - Operator reported: `CLINICAL HARD STOP DRY-RUN PASS · Penicillin/Amoxicillin BLOCKED · Synthetic ACTIVE rule BLOCKED · ORS ALLOWED · no Visit/Stock write`.
@@ -26,14 +26,20 @@ Branch: `feature/cloudflare-gateway-precutover-20261016` / Draft PR #10.
 ## Gates to finish before Release
 | Gate | Required evidence | As of document |
 |---|---|---|
-| 0 | New GAS SANDBOX deployment points only to synthetic Sheet, source artifact / commit, `/api/health.buildId` exact match, deployment ID/version and timestamp recorded | **OPEN**: latest code is packaged, not installed/verified at GAS |
-| 1 | Controlled real GAS `submitVisit_` negative-path (Penicillin/Amoxicillin, ACTIVE rule, Staff, unknown Student, stale snapshot) with before/after zero-mutation proof | **OPEN**: VM PASS + read-only diagnostic PASS, live submit boundary not tested |
-| 2 | Disposable Sandbox rollback fault injection, FEFO/expired/quarantine, concurrent users, duplicate/timeout, stock-ledger reconciliation | **PARTIAL**: 4 VM injection tests PASS; real GAS fault/concurrency OPEN |
+| 0 | GAS Sandbox R2 backend health fingerprint, correct synthetic Sheet, exact archive/commit, deployment ID and timestamps | **PARTIAL PASS**: operator supplied live direct-GAS GET API `2.4.1`, `buildId=BHHINF-P1-SAFETY-20261016-R2`, `2026-10-16 22:59:58`; independent archive SHA/deployment ID/project identity still unverified |
+| 1 | Real GAS `submitVisit_` negative-path 4 defined scenarios with before/after zero-write reconciliation | **PASS IN SCOPED FOUR CASES**: Penicillin+Amoxicillin, UNKNOWN student, Staff penicillin, Staff missing allergy; standalone synthetic ACTIVE rule and stale snapshot remain separately covered by earlier dry-run/VM, not all live submission permutations |
+| 2 | Disposable Sandbox rollback fault injection, FEFO/expired/quarantine, concurrent users, duplicate/timeout, stock-ledger reconciliation | **PARTIAL**: 4 post-apply VM rollback fault-injection tests plus successful FEFO/lot ID tie-break/duplicate rejection VM cases PASS; disposable GAS multi-write rollback/concurrency OPEN |
 | 3 | Clinical & pharmacy formal acceptance of allergy status, named-ingredient semantics, false positives/negations/cross-reactivity, Teacher/Staff/Student/Free Text flow, rule governance, mobile UI | **OPEN** |
 | 4 | End-to-end notification HTML (BHH CI, yellow referral, red emergency), safe MailApp recipient tests with no real UAT delivery, retry/UNKNOWN, Dashboard & roles | **OPEN** |
 | 5 | Security review: public direct GAS endpoint risks, rate limits/WAF, user-role revocation, recovery/backup/monitoring, signed production config, controlled Cloudflare assets deploy, post-cutover smoke/rollback | **OPEN** |
 
 **Release invariant:** Cloudflare `LEGACY_GAS_SINGLE_WRITER` can only be enabled on a separately authorized Production worker after Gates 0–5. GAS/Sheets is the sole writer. Do **not** activate D1 production writes or simultaneously expose old/new writer paths. Do not merge Draft PR #10 or deploy this package to GAS Production as a shortcut.
+
+## Gate 1 controlled live result (2026-10-16)
+Operator submitted `status=PASS`, `scope=REAL_SUBMIT_VISIT_NEGATIVE_PATH`, `buildId=BHHINF-P1-SAFETY-20261016-R2`; all four fixed cases returned the expected rejection codes and declared zero Visit/Stock/Notification/Audit writes. Independent, read-only seven-sheet reconciliation: `DISPENSE_HEADER=11`, `DISPENSE_ITEMS=3`, `STOCK_TRANSACTION=18`, `NOTIFICATION_LOG=4`, lots `003A=29`, `003B=50`, `005A=20`, item ORS `79`, Amoxicillin `20`; `AUDIT_LOG=23` with last entry `LOGIN/SUCCESS` (one new login since previous count 22). These facts do not establish clinical rules for arbitrary synonyms/negations. Historical one-shot fixture must not be replayed.
+
+Gate 1 evidence: [runbook with pass outcome](https://github.com/JuiPharm/BHH_Infirmary/blob/feature/cloudflare-gateway-precutover-20261016/docs/GATE1_LIVE_NEGATIVE_PATH_UAT_RUNBOOK_2026-10-16.md).
+Gate 2 preparation: [readiness runbook](https://github.com/JuiPharm/BHH_Infirmary/blob/feature/cloudflare-gateway-precutover-20261016/docs/GATE2_STOCK_ROLLBACK_CONCURRENCY_UAT_RUNBOOK_2026-10-16.md).
 
 ## Immediate operator-dependent sequence
 1. Open successful [GAS Sandbox UAT Package workflow](https://github.com/JuiPharm/BHH_Infirmary/actions/runs/38921323682), download `BHH_Infirmary_GAS_SANDBOX_UAT` (seven .gs files + MANIFEST). Install only in isolated GAS Sandbox; verify Script Property SHEET_ID. Record deployment/version ID, not credentials.
