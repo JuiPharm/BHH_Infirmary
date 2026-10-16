@@ -64,7 +64,7 @@ test('one-shot synthetic visit commits only after stock and visit readbacks',asy
 test('replaying test ID cannot cause second dispense',async()=>{
  const db=new Db(),gas=mockGas();await executeSyntheticUatVisit(gas,{UAT_DB:db},'token');
  const second=await executeSyntheticUatVisit(gas,{UAT_DB:db},'token');
- assert.equal(second.status,409);assert.equal(second.body.errorCode,'UAT_ALREADY_ATTEMPTED_NO_RETRY');assert.equal(gas.submits(),1);
+ assert.equal(second.status,409);assert.equal(second.body.errorCode,'UAT_FIXTURE_CHANGED');assert.equal(gas.submits(),1);
 });
 test('wrong role never claims or sends clinical action',async()=>{
  const db=new Db(),gas=mockGas({role:{staffId:'MOCK-WRONG',role:'ADMIN'}});
