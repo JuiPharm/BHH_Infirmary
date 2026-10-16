@@ -35,6 +35,7 @@ p{line-height:1.7}.small{color:#65718a;font-size:13px}.output{white-space:pre-wr
 <button class="secondary" type="button" data-read="getDashboardV2">ตรวจ Dashboard</button>
 <button class="secondary" type="button" data-read="getInventoryIntegrity">ตรวจ Inventory Integrity</button>
 <button class="secondary" type="button" data-read="getDrugAllergyRules">ตรวจ Allergy Rules (LOCKED)</button>
+<button class="secondary" type="button" data-read="runSyntheticAllergySafetyCheck">ตรวจ Clinical Hard Stop (Dry-run)</button>
 </div>
 </div>
 <div style="border-top:1px solid #dfe8f2;margin-top:24px;padding-top:20px">
@@ -66,6 +67,14 @@ document.querySelectorAll('[data-read]').forEach(button=>button.addEventListener
    const v=await res.json();
    if(!res.ok||v.success!==true)throw Error(String(v.errorCode||'UAT_READ_FAILED'));
    const d=v.data;
+   if(action==='runSyntheticAllergySafetyCheck') {
+     if(!d||d.mode!=='READ_ONLY'||d.fixture!=='SYNTHETIC_ONLY'||
+        d.baselineLocked!==true||d.penicillinAmoxicillinBlocked!==true||
+        d.syntheticActiveRuleBlocked!==true||d.unrelatedOrsAllowed!==true||
+        d.visitWrites!==0||d.stockWrites!==0)throw Error('UAT_CLINICAL_CHECK_UNVERIFIED');
+     status.textContent='CLINICAL HARD STOP DRY-RUN PASS · Penicillin/Amoxicillin BLOCKED · Synthetic ACTIVE rule BLOCKED · ORS ALLOWED · no Visit/Stock write';
+     return;
+   }
    if(action==='getDrugAllergyRules') {
      if(!Array.isArray(d)||!d.some(x=>x['Rule ID']==='SYSTEM-PENICILLIN-HARD-STOP'&&x.Status==='LOCKED'))throw Error('ALLERGY_BASELINE_MISSING');
      status.textContent='ALLERGY RULES READ PASS · '+d.length+' กฎ · System Penicillin Hard Stop = LOCKED';
