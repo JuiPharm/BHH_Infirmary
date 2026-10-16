@@ -4,7 +4,7 @@ export const ALLOWED_ACTIONS=new Set([
 'getInventoryIntegrity','updateStockLotStatus','submitStockCount','getStockCounts','importItems','getDashboardData','getDashboardV2','getDashboardSummary','getVisitTrend',
 'getTopSymptoms','getTopItems','getLowStock','getExpiryAlerts','getUsers','createUser','updateUser','deactivateUser','resetPassword','getConfig','updateConfig',
 'getNotificationLog','retryNotification','reconcileNotifications','resolveUncertainNotification','submitSyntheticUatVisit',
-'getDrugAllergyRules','saveDrugAllergyRule','publishDrugAllergyRule','submitSyntheticAllergyDraft','publishSyntheticAllergyRule']);
+'getDrugAllergyRules','saveDrugAllergyRule','publishDrugAllergyRule','submitSyntheticAllergyDraft','publishSyntheticAllergyRule','runSyntheticAllergySafetyCheck']);
 export const MUTATING_ACTIONS=new Set(['updateStudentSafetyProfile','importStudents','importStaffMaster','submitVisit','submitDispense','receiveStock','adjustStock',
 'updateStockLotStatus','submitStockCount','importItems','createUser','updateUser','deactivateUser','resetPassword','updateConfig','retryNotification',
 'reconcileNotifications','resolveUncertainNotification','saveDrugAllergyRule','publishDrugAllergyRule','submitSyntheticAllergyDraft','publishSyntheticAllergyRule']);
