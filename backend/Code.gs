@@ -451,6 +451,16 @@ function submitDispense_(p,s) {
   return submitVisit_(p,s);
 }
 
+// Read-only preflight: no rejected Visit may write even a header/format change.
+function assertVisitHeaderSchemaReady_(sheet) {
+  const columns = sheet.getLastColumn();
+  if (!columns || columns < HEADERS.DISPENSE_HEADER.length)
+    throw new Error('VISIT_SCHEMA_NOT_READY');
+  const present = sheet.getRange(1,1,1,columns).getValues()[0].map(String);
+  if (HEADERS.DISPENSE_HEADER.some(function(name){ return present.indexOf(name) < 0; }))
+    throw new Error('VISIT_SCHEMA_NOT_READY');
+}
+
 function submitVisit_(p,s) {
   if (!['NURSE','ADMIN','SUPER_ADMIN'].includes(s.role)) throw new Error('ACCESS_DENIED');
 
@@ -499,7 +509,9 @@ function submitVisit_(p,s) {
   try {
     const ss = getSpreadsheet_();
     const header = getSheet_(SHEETS.DISPENSE_HEADER);
-    ensureHeaders_(header, HEADERS.DISPENSE_HEADER);
+    // Clinical rejection must never migrate a spreadsheet or format its cells.
+    // setupSystem() owns schema changes; dispensing only verifies the migration.
+    assertVisitHeaderSchemaReady_(header);
     const detail = getSheet_(SHEETS.DISPENSE_ITEMS);
     const txn = getSheet_(SHEETS.STOCK_TRANSACTION);
     const lotSheet = getSheet_(SHEETS.STOCK_LOT);
@@ -1809,6 +1821,7 @@ function humanError_(code) {
     CANNOT_DEACTIVATE_SELF:'ไม่สามารถระงับบัญชีของตนเองได้',
     TRANSACTION_ROLLBACK_FAILED:'เกิดข้อผิดพลาดร้ายแรงระหว่างย้อนคืนรายการ กรุณาหยุดใช้งานรายการนี้และให้ผู้ดูแลตรวจสอบ Audit Log',
     VISIT_CLINICAL_DATA_REQUIRED:'กรุณาระบุอาการ บันทึก หรือผลการประเมินอย่างน้อย 1 รายการ',
+    VISIT_SCHEMA_NOT_READY:'โครงสร้างข้อมูล Visit ยังไม่พร้อม กรุณาติดต่อผู้ดูแลให้ตรวจสอบ Migration ก่อนใช้งาน',
     DISPOSITION_REQUIRED:'กรุณาระบุผลลัพธ์หลังรับบริการ (Disposition)',
     INVALID_DISPOSITION:'ค่า Disposition ไม่ถูกต้อง',
     INVALID_VITAL_SIGN:'ค่าชีพจรหรือสัญญาณชีพไม่ถูกต้อง',
