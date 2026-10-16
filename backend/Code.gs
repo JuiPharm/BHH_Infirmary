@@ -93,6 +93,7 @@ function route_(r) {
     case 'importStaffMaster': return importStaffMaster_(r.payload || {}, session);
     case 'importItems': return importItems_(r.payload || {}, session);
     case 'getDrugAllergyRules': return getDrugAllergyRules_(session);
+    case 'runSyntheticAllergySafetyCheck': return runSyntheticAllergySafetyCheck_(session);
     case 'saveDrugAllergyRule': return saveDrugAllergyRule_(r.payload || {},session);
     case 'publishDrugAllergyRule': return publishDrugAllergyRule_(r.payload || {},session);
     case 'getConfig': return getConfig_(session);
