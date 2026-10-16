@@ -9,7 +9,9 @@ function allergyRuleSheet_() {
   return getSpreadsheet_().getSheetByName(SHEETS.ALLERGY_RULES);
 }
 function allergyRuleRows_() {
-  if (!allergyRuleSheet_()) return [];
+  // Published custom rules must not silently vanish if the registry tab is missing.
+  // A missing rule sheet is a clinical configuration failure, never a green light.
+  if (!allergyRuleSheet_()) throw new Error('ALLERGY_RULES_UNAVAILABLE');
   const rows = rows_(SHEETS.ALLERGY_RULES);
   if (rows.length > 500) throw new Error('ALLERGY_RULES_LIMIT_EXCEEDED');
   return rows;
