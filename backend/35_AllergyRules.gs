@@ -102,7 +102,7 @@ function saveDrugAllergyRule_(payload,session) {
     if(ruleId && existing<1)throw new Error('ALLERGY_RULE_NOT_FOUND');
     if(existing>0 && String(data[existing][map.Status])!=='DRAFT')
       throw new Error('ACTIVE_RULE_IMMUTABLE_CREATE_NEW');
-    if(!existing && data.length>500)throw new Error('ALLERGY_RULES_LIMIT_EXCEEDED');
+    if(existing<1 && data.length>500)throw new Error('ALLERGY_RULES_LIMIT_EXCEEDED');
     const id=existing>0?ruleId:('AR'+Utilities.getUuid().replace(/-/g,'').slice(0,18));
     const fields={
       'Rule ID':id,'Allergen Terms':allergens,'Blocked Generic Terms':generics,
