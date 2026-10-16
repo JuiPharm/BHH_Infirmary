@@ -33,8 +33,8 @@ async function call(action,payload={}) {
  return 'Logout สำเร็จ';
 }
 form.addEventListener('submit',async(e)=>{e.preventDefault();login.disabled=true;status.textContent='กำลังตรวจสอบบัญชี UAT...';
- try{const p={staffId:form.staffId.value.trim(),password:form.password.value};status.textContent=await call('login',p);}
- catch(e){status.textContent='ไม่สำเร็จ: '+e.message;}finally{form.password.value='';login.disabled=false;}});
+ try{const p={staffId:document.getElementById('staffId').value.trim(),password:document.getElementById('password').value};status.textContent=await call('login',p);}
+ catch(e){status.textContent='ไม่สำเร็จ: '+e.message;}finally{document.getElementById('password').value='';login.disabled=false;}});
 document.getElementById('btnSession').addEventListener('click',async()=>{try{status.textContent=await call('getSession');}catch(e){status.textContent='Session: '+e.message;}});
 document.getElementById('btnLogout').addEventListener('click',async()=>{try{status.textContent=await call('logout');}catch(e){status.textContent='Logout: '+e.message;}});
 </script></body></html>`;
