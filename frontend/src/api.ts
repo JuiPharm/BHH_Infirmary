@@ -96,6 +96,7 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   VISIT_NOT_FOUND: 'Retry ไม่ได้: ไม่พบ Visit ที่เชื่อมกับ Notification นี้',
   INVALID_DATE_RANGE: 'ช่วงวันที่ไม่ถูกต้อง',
   STUDENT_SAFETY_REVIEW_REQUIRED: 'กรุณาตรวจสอบข้อมูลแพ้ยานักเรียนอีกครั้ง เพราะข้อมูลล่าสุดอาจมีการเปลี่ยนแปลง',
+  STUDENT_ALLERGY_STATUS_UNVERIFIED: 'ประวัติแพ้ยาของนักเรียนยังไม่ระบุหรือยังยืนยันไม่ได้ กรุณาทบทวนและบันทึกข้อมูลใน Student Safety Profile ก่อนจ่ายยา',
   NOTIFICATION_STATUS_UNCERTAIN: 'สถานะ Email ไม่แน่นอน ต้องตรวจสอบผู้รับก่อนส่งซ้ำ',
   NOTIFICATION_RETRY_NOT_ALLOWED: 'Retry ได้เฉพาะรายการสถานะ FAILED เท่านั้น',
   NOTIFICATION_STATUS_INVALID: 'สถานะ Notification ไม่รองรับการ Retry',
