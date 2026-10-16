@@ -20,6 +20,18 @@ p{line-height:1.7}.small{color:#65718a;font-size:13px}.output{white-space:pre-wr
 <button id="btnLogin" type="submit">ทดสอบ Login</button></form>
 <div><button id="btnSession" class="secondary" type="button">ตรวจ Session</button>
 <button id="btnLogout" class="secondary" type="button">Logout</button></div>
+<div style="border-top:1px solid #dfe8f2;margin-top:24px;padding-top:20px">
+<h2 style="font-size:18px">Read-only UAT (ข้อมูลจำลอง)</h2>
+<p class="small">หลัง Login ใช้ตรวจว่าระบบดึงข้อมูลจาก GAS Sandbox ได้ ปุ่มเหล่านี้ไม่บันทึก Visit ไม่ตัด Stock และแสดงเฉพาะจำนวนรายการรวมเท่านั้น</p>
+<div id="readActions">
+<button class="secondary" type="button" data-read="getStock">ตรวจ Stock</button>
+<button class="secondary" type="button" data-read="getStockLots">ตรวจ Lots</button>
+<button class="secondary" type="button" data-read="getSymptoms">ตรวจ Symptoms</button>
+<button class="secondary" type="button" data-read="getDispenseHistory">ตรวจ Visit History</button>
+<button class="secondary" type="button" data-read="getDashboardV2">ตรวจ Dashboard</button>
+<button class="secondary" type="button" data-read="getInventoryIntegrity">ตรวจ Inventory Integrity</button>
+</div>
+</div>
 <p class="small">รหัสผ่านถูกส่งโดย HTTPS ไปยัง Cloudflare Gateway และ GAS Sandbox เท่านั้น ไม่บันทึกไว้ในหน้าเว็บหรือ Local Storage โปรดอย่าส่งรหัสผ่านหรือ Session Cookie ในแชต</p>
 <p id="status" role="status" aria-live="polite" class="output">พร้อมทดสอบ · ยังไม่ได้เข้าสู่ระบบ</p>
 </section></main>
@@ -37,4 +49,16 @@ form.addEventListener('submit',async(e)=>{e.preventDefault();login.disabled=true
  catch(e){status.textContent='ไม่สำเร็จ: '+e.message;}finally{document.getElementById('password').value='';login.disabled=false;}});
 document.getElementById('btnSession').addEventListener('click',async()=>{try{status.textContent=await call('getSession');}catch(e){status.textContent='Session: '+e.message;}});
 document.getElementById('btnLogout').addEventListener('click',async()=>{try{status.textContent=await call('logout');}catch(e){status.textContent='Logout: '+e.message;}});
+document.querySelectorAll('[data-read]').forEach(button=>button.addEventListener('click',async()=>{
+ const action=button.dataset.read;button.disabled=true;status.textContent='กำลังตรวจ '+action+' ...';
+ try{
+   const res=await fetch('/api/action',{method:'POST',credentials:'same-origin',cache:'no-store',redirect:'error',
+     headers:{'content-type':'application/json','X-BHH-Gateway':'1'},body:JSON.stringify({action,payload:{}})});
+   const v=await res.json();
+   if(!res.ok||v.success!==true)throw Error(String(v.errorCode||'UAT_READ_FAILED'));
+   const d=v.data;
+   const count=Array.isArray(d)?d.length:(Array.isArray(d?.items)?d.items.length: Array.isArray(d?.rows)?d.rows.length:null);
+   status.textContent='READ PASS: '+action+(count!==null?' · '+count+' รายการ':' · ระบบตอบรับข้อมูล');
+ }catch(err){status.textContent='READ FAIL: '+action+' · '+err.message;}finally{button.disabled=false;}
+}));
 </script></body></html>`;
