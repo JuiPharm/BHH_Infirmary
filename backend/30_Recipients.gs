@@ -169,6 +169,10 @@ function validateStudentDrugSafetyForDispense_(recipient,p,plans) {
   });
   if (!student) throw new Error('STUDENT_NOT_FOUND');
   const latestAllergy = String(student['Drug Allergy'] || '').trim();
+  // A blank/explicitly unknown master history is not evidence of NKDA.
+  // Require a documented allergy history or explicit NKDA before drug dispensing.
+  if (!latestAllergy || /^(UNKNOWN|UNVERIFIED|NOT KNOWN|ไม่ทราบ)$/i.test(latestAllergy))
+    throw new Error('STUDENT_ALLERGY_STATUS_UNVERIFIED');
   const reviewedSnapshot = String(p.studentDrugAllergySnapshot || '').trim();
   if (p.studentSafetyAcknowledged !== true || reviewedSnapshot !== latestAllergy)
     throw new Error('STUDENT_SAFETY_REVIEW_REQUIRED');
@@ -183,7 +187,9 @@ function validateFreeTextAllergyForDispense_(recipient,p,plans) {
     reaction:'',
     note:''
   };
-  if (!recipient || recipient.recipientSource !== 'FREE_TEXT') return result;
+  // STAFF_MASTER does not carry a drug-allergy field. Require a visit-level
+  // allergy assessment exactly as for FREE_TEXT; master identity alone is unsafe.
+  if (!recipient || (recipient.recipientSource !== 'FREE_TEXT' && recipient.recipientSource !== 'STAFF_MASTER')) return result;
 
   const hasDrug = (plans || []).some(function(plan){
     return normalizeItemType_(plan && plan.master && plan.master['Item Type']) === 'DRUG';
