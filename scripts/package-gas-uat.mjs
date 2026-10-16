@@ -25,6 +25,11 @@ for(const name of sourceFiles){
  copyFileSync(source,join(output,name));
  manifest.files.push({file:name,sha256:createHash('sha256').update(data).digest('hex')});
 }
+// This extra file is a SANDBOX-ONLY editor helper, not part of production backend.
+const helperFile='37_Gate1ClinicalNegativeUat.gs';
+const helperContent=readFileSync(join(root,'scripts','gas-uat-helper',helperFile));
+copyFileSync(join(root,'scripts','gas-uat-helper',helperFile),join(output,helperFile));
+manifest.files.push({file:helperFile,sandboxEditorOnly:true,sha256:createHash('sha256').update(helperContent).digest('hex')});
 writeFileSync(join(output,'MANIFEST.json'),JSON.stringify(manifest,null,2)+'\n');
 writeFileSync(join(output,'INSTALL_SANDBOX_ONLY.txt'),[
  'BHH Infirmary - GAS SANDBOX UAT package. DO NOT COPY INTO PRODUCTION GAS.',
@@ -33,7 +38,7 @@ writeFileSync(join(output,'INSTALL_SANDBOX_ONLY.txt'),[
  '2. Verify its Script Property SHEET_ID points to the synthetic UAT working copy.',
  '3. Back up existing SANDBOX GAS source. Do not change or publish Production.',
  '4. Replace each matching .gs source file with the corresponding package file;',
- '   add the NEW file 36_AllergySafetyDryRun.gs (do not paste it twice).',
+ '   add 36_AllergySafetyDryRun.gs and SANDBOX-ONLY 37_Gate1ClinicalNegativeUat.gs (no duplicates).',
  '5. Script Editor: Save all. Run syntax/authorized smoke check using a dedicated UAT account.',
  '6. The DRUG_ALLERGY_RULES tab is already created in the synthetic working copy;',
  '   do NOT rerun setupSystem() or seedUser() for this upgrade.',
@@ -41,6 +46,12 @@ writeFileSync(join(output,'INSTALL_SANDBOX_ONLY.txt'),[
  '8. Keep referral/emergency email DISABLED, use synthetic patients and medicines only.',
  '9. Confirm GET health API version, login, then read-only runSyntheticAllergySafetyCheck;',
  '9a. Confirm GET health buildId exactly equals MANIFEST.json gasBuildId; archive GAS deployment/version ID.',
+ '10. Gate 1 only: backup the synthetic workbook, then manually run runGate1ClinicalNegativeUat',
+ '    from the isolated GAS SANDBOX Script Editor; this invokes the REAL submitVisit_',
+ '    function with 4 fixed rejection cases and verifies zero Sheet changes.',
+ '    The helper is NOT an API action, is NEVER to be copied into Production GAS.',
+ '    A regression could write synthetic data: STOP and reconcile if any failure.',
+ '    Confirm SUCCESS only if status PASS and all 4 checks PASS; never auto retry.',
  '   the hard stop dry-run writes NO Visit/Stock and accepts NO caller-provided drugs;',
  '',
  'Never combine a generated unified GAS Code.gs with existing separate .gs files;',
