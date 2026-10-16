@@ -25,3 +25,12 @@
 - The next migration gates remain FEFO/rollback fault injection and full D1 historical ledger reconciliation under synthetic data only.
 
 **Do not replay** the completed `AR07c10f3cb053440fbc` Draft/Publish or prior Visit `Vde2628c7874d4471` one-shot tests.
+
+
+## Prepared next stage — zero-write clinical rule dry-run (not deployed to GAS yet)
+
+- Added `backend/36_AllergySafetyDryRun.gs` and read-only dispatcher `runSyntheticAllergySafetyCheck` to review branch `backend/Code.gs`.
+- The action is **SUPER_ADMIN only**, accepts no caller-generated drug or allergy names, and requires the exact synthetic Sandbox Spreadsheet ID. It runs the actual `enforceDrugAllergyRules_` function in memory on a fixed Penicillin → Amoxicillin case, the current ACTIVE UAT synthetic rule, and an unrelated ORS control.
+- Returns PASS only if both dangerous matches hard-stop while unrelated ORS does not. It creates no Visit, Dispense, Stock Transaction, or clinical Audit row.
+- Local CI VM behavior tests in `backend/tests/allergyDryRun.test.mjs` pass; latest build/package: https://github.com/JuiPharm/BHH_Infirmary/actions/runs/38883172005 and https://github.com/JuiPharm/BHH_Infirmary/actions/runs/38883172211.
+- **Not yet available in deployed GAS Sandbox or Cloudflare Preview**: it must be deployed using the Sandbox-only seven-file GAS source artifact and verified with signed test user. Preview must remain `UAT_READ_ONLY` and not enable arbitrary clinical/stock writes.
