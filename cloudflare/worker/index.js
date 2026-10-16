@@ -1,6 +1,7 @@
 import {ALLOWED_ACTIONS,MUTATING_ACTIONS,REQUIRED_API_VERSION} from './contracts.js';
 import {seal,unseal,getCookie,setCookie,clearCookie,redactSession} from './session.js';
 import {callGas} from './upstream.js';
+import {UAT_AUTH_PAGE} from './uat-page.js';
 const MAX_BODY_BYTES=256*1024;
 const HEADERS={'Content-Type':'application/json;charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 const HTTP={AUTH_REQUIRED:401,INVALID_SESSION:401,INVALID_CREDENTIALS:401,ACCESS_DENIED:403,UNKNOWN_ACTION:404,UPSTREAM_UNAVAILABLE:502,UPSTREAM_INVALID_RESPONSE:502,UPSTREAM_REDIRECT_BLOCKED:502,GATEWAY_NOT_CONFIGURED:503,API_VERSION_MISMATCH:503,OPERATION_STATUS_UNKNOWN:503};
@@ -49,6 +50,7 @@ export async function handleRequest(request,env,ctx,dependencies={}){
  }
  if(pathname.startsWith('/api/'))return error('UNKNOWN_ACTION',404);
  if(env.ASSETS&&['GET','HEAD'].includes(request.method))return env.ASSETS.fetch(request);
+ if(pathname==='/'&&request.method==='GET')return new Response(UAT_AUTH_PAGE,{status:200,headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','x-frame-options':'DENY','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"}});
  return new Response('Static assets not configured',{status:404});
 }
 export default {fetch:handleRequest};
