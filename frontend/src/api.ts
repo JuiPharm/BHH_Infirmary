@@ -10,6 +10,7 @@ export interface BackendHealth {
   success: boolean;
   service?: string;
   apiVersion?: string;
+  buildId?: string;
   timestamp?: string;
 }
 
