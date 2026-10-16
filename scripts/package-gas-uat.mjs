@@ -7,7 +7,17 @@ const root=resolve(import.meta.dirname,'..');
 const sourceFiles=['Code.gs','30_Recipients.gs','35_AllergyRules.gs','36_AllergySafetyDryRun.gs','40_ClinicalP4.gs','60_Notification.gs','70_DashboardP4.gs'];
 const output=join(root,'dist','gas-sandbox-uat');
 mkdirSync(output,{recursive:true});
-const manifest={application:'BHH Infirmary',target:'SYNTHETIC_GAS_SANDBOX_ONLY',files:[],createdBy:'scripts/package-gas-uat.mjs'};
+const sourceText=readFileSync(join(root,'backend','Code.gs'),'utf8');
+const idMatch=sourceText.match(/const GAS_SOURCE_BUILD_ID\\s*=\\s*'([^']+)'/);
+if(!idMatch)throw Error('Missing GAS_SOURCE_BUILD_ID in Code.gs');
+const manifest={
+ application:'BHH Infirmary',
+ target:'SYNTHETIC_GAS_SANDBOX_ONLY',
+ apiVersion:'2.4.1',
+ gasBuildId:idMatch[1],
+ gitCommit:String(process.env.GITHUB_SHA||'LOCAL_NOT_ATTESTED'),
+ files:[],createdBy:'scripts/package-gas-uat.mjs'
+};
 for(const name of sourceFiles){
  const source=join(root,'backend',name);
  const data=readFileSync(source);
@@ -30,6 +40,7 @@ writeFileSync(join(output,'INSTALL_SANDBOX_ONLY.txt'),[
  '7. Deploy > Manage deployments > create NEW Sandbox deployment version (or edit sandbox deployment).',
  '8. Keep referral/emergency email DISABLED, use synthetic patients and medicines only.',
  '9. Confirm GET health API version, login, then read-only runSyntheticAllergySafetyCheck;',
+ '9a. Confirm GET health buildId exactly equals MANIFEST.json gasBuildId; archive GAS deployment/version ID.',
  '   the hard stop dry-run writes NO Visit/Stock and accepts NO caller-provided drugs;',
  '',
  'Never combine a generated unified GAS Code.gs with existing separate .gs files;',
