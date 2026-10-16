@@ -635,6 +635,7 @@ export const VisitPage: React.FC = () => {
     } catch (err: any) {
       const message = err?.message || 'เกิดข้อผิดพลาดในการบันทึก Visit';
       const mayHaveCommitted =
+        err?.errorCode === 'OPERATION_STATUS_UNKNOWN' ||
         /TIMEOUT|NETWORK|ไม่สามารถเชื่อมต่อ|ใช้เวลานาน|Duplicate|duplicate|ถูกประมวลผล/i.test(message);
       Swal.fire({
         title: mayHaveCommitted ? 'ยังยืนยันผลการบันทึกไม่ได้' : 'บันทึกไม่สำเร็จ',
