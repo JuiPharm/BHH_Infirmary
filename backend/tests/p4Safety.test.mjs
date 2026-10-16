@@ -12,7 +12,8 @@ function makeContext() {
   const ctx = vm.createContext({
     console,
     SHEETS:{STUDENTS:'STUDENTS',STAFF_MASTER:'STAFF_MASTER',
-      DISPENSE_HEADER:'DISPENSE_HEADER',NOTIFICATION_LOG:'NOTIFICATION_LOG'},
+      DISPENSE_HEADER:'DISPENSE_HEADER',NOTIFICATION_LOG:'NOTIFICATION_LOG',
+      ALLERGY_RULES:'DRUG_ALLERGY_RULES'},
     HEADERS:{STAFF_MASTER:['Staff ID','Full Name','Recipient Type','Department','Status','Updated At']},
     LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},
     Utilities:{getUuid:()=> '12345678-1234-1234-1234-123456789abc'},
