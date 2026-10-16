@@ -173,8 +173,7 @@ function validateStudentDrugSafetyForDispense_(recipient,p,plans) {
   if (p.studentSafetyAcknowledged !== true || reviewedSnapshot !== latestAllergy)
     throw new Error('STUDENT_SAFETY_REVIEW_REQUIRED');
   // Acknowledgement of a matching allergy does not authorize dispensing.
-  if (knownPenicillinDrugConflict_(latestAllergy,plans))
-    throw new Error('DRUG_ALLERGY_HARD_STOP');
+  enforceDrugAllergyRules_(latestAllergy,plans);
 }
 
 function validateFreeTextAllergyForDispense_(recipient,p,plans) {
@@ -205,8 +204,7 @@ function validateFreeTextAllergyForDispense_(recipient,p,plans) {
     if (!result.drugGroup || !result.reaction || !result.note) {
       throw new Error('ALLERGY_DETAIL_REQUIRED');
     }
-    if (knownPenicillinDrugConflict_(result.drugGroup,plans))
-      throw new Error('DRUG_ALLERGY_HARD_STOP');
+    enforceDrugAllergyRules_(result.drugGroup,plans);
   }
   return result;
 }
