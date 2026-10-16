@@ -25,8 +25,13 @@ export async function handleRequest(request,env,ctx,dependencies={}){
   const action=input.action,payload=input.payload&&typeof input.payload==='object'&&!Array.isArray(input.payload)?input.payload:{};
   // Fail closed: public Sandbox may exercise authentication only. Clinical/inventory never passes.
   const mode=String(env.GATEWAY_MODE||'BLOCK_ALL');
-  if(mode!=='UAT_AUTH_ONLY'&&mode!=='LEGACY_GAS_SINGLE_WRITER')return error('PREVIEW_POST_DISABLED',403);
-  if(mode==='UAT_AUTH_ONLY'&&!['login','getSession','logout'].includes(action))
+  if(!['UAT_AUTH_ONLY','UAT_READ_ONLY','LEGACY_GAS_SINGLE_WRITER'].includes(mode))
+   return error('PREVIEW_POST_DISABLED',403);
+  const authActions=['login','getSession','logout'];
+  const uatReadActions=['getStock','getStockLots','getSymptoms','getInventoryIntegrity','getDispenseHistory','getDashboardV2'];
+  if(mode==='UAT_AUTH_ONLY'&&!authActions.includes(action))
+   return error('PREVIEW_ACTION_DISABLED',403);
+  if(mode==='UAT_READ_ONLY'&&!authActions.includes(action)&&!uatReadActions.includes(action))
    return error('PREVIEW_ACTION_DISABLED',403);
 
   if(action==='login'){
