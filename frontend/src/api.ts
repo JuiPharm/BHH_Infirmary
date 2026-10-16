@@ -78,6 +78,7 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   INVALID_SYMPTOM_CATEGORY: 'หมวดอาการไม่ถูกต้อง',
   ALLERGY_STATUS_REQUIRED: 'ก่อนจ่ายยาใน Free Text Visit ต้องระบุสถานะแพ้ยา',
   ALLERGY_DETAIL_REQUIRED: 'กรณีมีประวัติแพ้ยา กรุณาระบุยา/กลุ่มยา อาการแพ้ และหมายเหตุ',
+  DRUG_ALLERGY_HARD_STOP: 'ระบบหยุดการจ่ายยา: พบความเสี่ยงแพ้ยาที่บันทึกไว้ กรุณาทบทวนรายการยาและปรึกษาเภสัชกรก่อนดำเนินการ',
   NOTIFICATION_ALREADY_SENT: 'Notification นี้ส่งสำเร็จแล้ว ไม่อนุญาตให้ส่งซ้ำ',
   NOTIFICATION_NOT_FOUND: 'ไม่พบ Notification ID นี้ใน Log ของ API ที่กำลังใช้งาน',
   NOTIFICATION_EMAIL_DISABLED: 'Retry ไม่ได้ เพราะ CONFIG ปิดการส่ง Email หรือรายการ CONFIG ไม่ Active',
