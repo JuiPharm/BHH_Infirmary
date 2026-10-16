@@ -34,6 +34,7 @@ p{line-height:1.7}.small{color:#65718a;font-size:13px}.output{white-space:pre-wr
 <button class="secondary" type="button" data-read="getDispenseHistory">ตรวจ Visit History</button>
 <button class="secondary" type="button" data-read="getDashboardV2">ตรวจ Dashboard</button>
 <button class="secondary" type="button" data-read="getInventoryIntegrity">ตรวจ Inventory Integrity</button>
+<button class="secondary" type="button" data-read="getDrugAllergyRules">ตรวจ Allergy Rules (LOCKED)</button>
 </div>
 </div>
 <p class="small">รหัสผ่านถูกส่งโดย HTTPS ไปยัง Cloudflare Gateway และ GAS Sandbox เท่านั้น ไม่บันทึกไว้ในหน้าเว็บหรือ Local Storage โปรดอย่าส่งรหัสผ่านหรือ Session Cookie ในแชต</p>
@@ -61,6 +62,11 @@ document.querySelectorAll('[data-read]').forEach(button=>button.addEventListener
    const v=await res.json();
    if(!res.ok||v.success!==true)throw Error(String(v.errorCode||'UAT_READ_FAILED'));
    const d=v.data;
+   if(action==='getDrugAllergyRules') {
+     if(!Array.isArray(d)||!d.some(x=>x['Rule ID']==='SYSTEM-PENICILLIN-HARD-STOP'&&x.Status==='LOCKED'))throw Error('ALLERGY_BASELINE_MISSING');
+     status.textContent='ALLERGY RULES READ PASS · '+d.length+' กฎ · System Penicillin Hard Stop = LOCKED';
+     return;
+   }
    const count=Array.isArray(d)?d.length:(Array.isArray(d?.items)?d.items.length: Array.isArray(d?.rows)?d.rows.length:null);
    status.textContent='READ PASS: '+action+(count!==null?' · '+count+' รายการ':' · ระบบตอบรับข้อมูล');
  }catch(err){status.textContent='READ FAIL: '+action+' · '+err.message;}finally{button.disabled=false;}
