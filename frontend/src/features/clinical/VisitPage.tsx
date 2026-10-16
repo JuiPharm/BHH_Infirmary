@@ -491,7 +491,7 @@ export const VisitPage: React.FC = () => {
       return;
     }
 
-    if (selectedRecipient.recipientSource === 'FREE_TEXT') {
+    if (selectedRecipient.recipientSource === 'FREE_TEXT' || selectedRecipient.recipientSource === 'STAFF_MASTER') {
       const allergyError = validateFreeTextDrugAllergy(freeTextAllergy, hasDrug);
       if (allergyError) {
         Swal.fire('Drug Allergy Safety', allergyError, 'warning');
@@ -570,7 +570,7 @@ export const VisitPage: React.FC = () => {
         disposition,
         outcomeNote: outcomeNote.trim(),
         drugAllergy:
-          selectedRecipient.recipientSource === 'FREE_TEXT'
+          (selectedRecipient.recipientSource === 'FREE_TEXT' || selectedRecipient.recipientSource === 'STAFF_MASTER')
             ? freeTextAllergy
             : undefined,
         studentSafetyAcknowledged:
@@ -910,13 +910,13 @@ export const VisitPage: React.FC = () => {
           </>
             )}
 
-          {selectedRecipient?.recipientSource === 'FREE_TEXT' && (
+          {(selectedRecipient?.recipientSource === 'FREE_TEXT' || selectedRecipient?.recipientSource === 'STAFF_MASTER') && (
             <section className="card">
               <div className="card-header">
-                <span className="card-title">Drug Allergy Safety — Free Text Visit</span>
+                <span className="card-title">Drug Allergy Safety — Free Text / Teacher / Staff</span>
               </div>
               <p style={{ color: '#64748b', fontSize: '.85rem' }}>
-                หากมีการจ่ายยา ต้องระบุสถานะแพ้ยาอย่างชัดเจน ระบบจะไม่ตีความช่องว่างว่าเป็น NKDA
+                การจ่ายยาให้ Free Text / Teacher / Staff ต้องซักประวัติแพ้ยาใน Visit นี้ทุกครั้ง เพราะข้อมูล Staff Master ไม่มีช่องประวัติแพ้ยา ระบบจะไม่ตีความช่องว่างว่าเป็น NKDA
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {([
@@ -927,7 +927,7 @@ export const VisitPage: React.FC = () => {
                   <label key={value} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <input
                       type="radio"
-                      name="free-text-allergy"
+                      name="recipient-visit-allergy"
                       checked={freeTextAllergy.status === value}
                       onChange={() => setFreeTextAllergy({ ...freeTextAllergy, status: value })}
                     />
