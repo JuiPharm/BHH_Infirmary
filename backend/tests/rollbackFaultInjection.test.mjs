@@ -101,3 +101,49 @@ for (const phase of ['STOCK_LOT','DISPENSE_HEADER','DISPENSE_ITEMS','STOCK_TRANS
   assert.equal(h.state.audits,0);
  });
 }
+
+test('successful synthetic submitVisit uses earliest-expiry eligible lot and records matching stock ledger',()=>{
+ const h=createHarness('NONE');
+ const outcome=h.ctx.submitVisit_(h.payload,{staffId:'UAT',role:'SUPER_ADMIN'});
+ assert.equal(outcome.success,true);
+ assert.equal(h.data.STOCK_LOT[1][6],9);
+ assert.equal(h.item.QTY,9);
+ assert.equal(h.data.DISPENSE_HEADER.length,2);
+ assert.equal(h.data.DISPENSE_ITEMS.length,2);
+ assert.equal(h.data.STOCK_TRANSACTION.length,2);
+ assert.equal(h.data.STOCK_TRANSACTION[1][4],'MOCK-LOT-FI-01');
+ assert.equal(h.data.STOCK_TRANSACTION[1][6],10);
+ assert.equal(h.data.STOCK_TRANSACTION[1][7],9);
+ assert.equal(h.state.lock,1);
+ assert.equal(h.state.unlock,1);
+ assert.equal(h.state.audits,1);
+ assert.equal(h.state.emails,0);
+});
+
+test('same-expiry FEFO tie chooses lexicographically first lot ID regardless of row order',()=>{
+ const h=createHarness('NONE');
+ // Deliberately put the lexicographically-first ID after the existing lot.
+ h.data.STOCK_LOT.push(['MOCK-LOT-FI-00','MOCK-ITEM-003','ORS-00',
+  '2027-12-31','2026-10-10',8,8,1,'UAT','ACTIVE']);
+ const outcome=h.ctx.submitVisit_(h.payload,{staffId:'UAT',role:'SUPER_ADMIN'});
+ assert.equal(outcome.success,true);
+ assert.equal(h.data.STOCK_LOT[1][6],10);
+ assert.equal(h.data.STOCK_LOT[2][6],7);
+ assert.equal(h.data.STOCK_TRANSACTION[1][4],'MOCK-LOT-FI-00');
+ assert.equal(h.data.STOCK_TRANSACTION[1][6],8);
+ assert.equal(h.data.STOCK_TRANSACTION[1][7],7);
+ assert.equal(h.state.lock,h.state.unlock);
+});
+
+test('repeat synthetic client transaction ID is rejected before any subsequent Stock or Visit write',()=>{
+ const h=createHarness('NONE');
+ h.ctx.submitVisit_(h.payload,{staffId:'UAT',role:'SUPER_ADMIN'});
+ const snapshot=JSON.stringify(h.data),auditCount=h.state.audits;
+ assert.throws(()=>h.ctx.submitVisit_(h.payload,{staffId:'UAT',role:'SUPER_ADMIN'}),
+   /DUPLICATE_TRANSACTION/);
+ assert.equal(JSON.stringify(h.data),snapshot);
+ assert.equal(h.item.QTY,9);
+ assert.equal(h.state.audits,auditCount);
+ assert.equal(h.state.lock,2);
+ assert.equal(h.state.unlock,2);
+});
