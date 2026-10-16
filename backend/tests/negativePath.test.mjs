@@ -111,11 +111,30 @@ test('reject free-text medication without allergy status',()=>{
 test('reject unknown drug code without a stock write',()=>{
  expectRejected(x=>({...x,items:[{itemCode:'DOES-NOT-EXIST',qty:1}]}),'ITEM_NOT_FOUND');
 });
-test('KNOWN GAP: acknowledgement alone currently does not check Penicillin against Amoxicillin',()=>{
- const h=harness(),recipient={recipientSource:'STUDENT_MASTER',recipientId:'MOCK-STU-003'};
- const plans=[{master:{'Item Type':'MEDICATION','Generic Name':'Amoxicillin 250 mg'}}];
- // This confirms a release blocker, NOT evidence of safety. Must add clinical-risk resolution.
- assert.doesNotThrow(()=>h.ctx.validateStudentDrugSafetyForDispense_(
-   recipient,{studentSafetyAcknowledged:true,studentDrugAllergySnapshot:'PENICILLIN'},plans));
+test('hard stop: acknowledged Penicillin allergy cannot dispense Amoxicillin',()=>{
+ expectRejected(x=>({...x,items:[{itemCode:'MOCK-ITEM-005',qty:1}],
+   recipient:{recipientSource:'STUDENT_MASTER',recipientId:'MOCK-STU-003'},
+   studentId:'MOCK-STU-003',studentSafetyAcknowledged:true,
+   studentDrugAllergySnapshot:'PENICILLIN'}),'DRUG_ALLERGY_HARD_STOP');
+});
+test('hard stop: free-text Penicillin allergy cannot dispense Amoxicillin',()=>{
+ expectRejected(x=>({...x,items:[{itemCode:'MOCK-ITEM-005',qty:1}],
+   recipient:{recipientSource:'FREE_TEXT',recipientName:'Mock UAT',recipientType:'OTHER'},
+   studentId:'',drugAllergy:{status:'KNOWN_ALLERGY',drugGroup:'Penicillin',
+      reaction:'Rash',note:'Synthetic allergy only'}}),'DRUG_ALLERGY_HARD_STOP');
+});
+test('Penicillin allergy alone does not block unrelated ORS after verified acknowledgement',()=>{
+ const h=harness(),r={recipientSource:'STUDENT_MASTER',recipientId:'MOCK-STU-003'};
+ assert.doesNotThrow(()=>h.ctx.validateStudentDrugSafetyForDispense_(r,
+   {studentSafetyAcknowledged:true,studentDrugAllergySnapshot:'PENICILLIN'},
+   [{master:{'Item Type':'MEDICATION','Generic Name':'Oral Rehydration Salts'}}]));
  assert.equal(h.state.writes,0);
 });
+test('stale allergy acknowledgement is rejected before checking conflict',()=>{
+ const h=harness(),r={recipientSource:'STUDENT_MASTER',recipientId:'MOCK-STU-003'};
+ assert.throws(()=>h.ctx.validateStudentDrugSafetyForDispense_(r,
+   {studentSafetyAcknowledged:true,studentDrugAllergySnapshot:'NKDA'},
+   [{master:{'Item Type':'MEDICATION','Generic Name':'Amoxicillin 250 mg'}}]),
+   /STUDENT_SAFETY_REVIEW_REQUIRED/);
+});
+
