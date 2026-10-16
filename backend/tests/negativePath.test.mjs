@@ -53,9 +53,9 @@ function harness(){
    deleteRows(){state.writes++;throw Error('UNEXPECTED_DELETE_IN_NEGATIVE_TEST');}
   };
  }
- ctx.getSpreadsheet_=()=>({getSheetByName:()=>null});
+ ctx.getSpreadsheet_=()=>({getSheetByName:(name)=>name==='DRUG_ALLERGY_RULES'?{}:null});
  ctx.getSheet_=mockSheet;
- ctx.ensureHeaders_=()=>{state.headers++};
+ ctx.ensureHeaders_=()=>{state.headers++;state.writes++;throw Error('UNEXPECTED_SCHEMA_MIGRATION_WRITE');};
  ctx.rows_=(table)=>(data[table]||[]).map(x=>Array.isArray(x)?[...x]:{...x});
  ctx.clearCache_=()=>{};
  ctx.truncateAfterRow_=()=>{state.writes++;throw Error('UNEXPECTED_ROLLBACK_WRITE')};
@@ -138,3 +138,74 @@ test('stale allergy acknowledgement is rejected before checking conflict',()=>{
    /STUDENT_SAFETY_REVIEW_REQUIRED/);
 });
 
+
+test('hard stop: multi-drug batch is atomic when one medication conflicts',()=>{
+ expectRejected(x=>({...x,items:[
+  {itemCode:'MOCK-ITEM-003',qty:1},{itemCode:'MOCK-ITEM-005',qty:1}
+ ],recipient:{recipientSource:'STUDENT_MASTER',recipientId:'MOCK-STU-003'},
+ studentId:'MOCK-STU-003',studentSafetyAcknowledged:true,
+ studentDrugAllergySnapshot:'PENICILLIN'}),'DRUG_ALLERGY_HARD_STOP');
+});
+test('missing clinical rule registry blocks unrelated medication rather than silently bypassing active rules',()=>{
+ const h=harness();
+ h.ctx.getSpreadsheet_=()=>({getSheetByName:()=>null});
+ const before=JSON.stringify(h.data);
+ assert.throws(()=>h.ctx.submitVisit_(base(),user),/ALLERGY_RULES_UNAVAILABLE/);
+ assert.equal(JSON.stringify(h.data),before);
+ assert.equal(h.state.writes,0);
+ assert.equal(h.state.headers,0);
+ assert.equal(h.state.lockCount,h.state.unlockCount);
+});
+test('missing visit schema is an explicit read-only preflight failure',()=>{
+ const h=harness(),original=h.ctx.getSheet_;
+ h.ctx.getSheet_=(name)=>{
+   const sheet=original(name);
+   return name==='DISPENSE_HEADER'?{...sheet,getLastColumn:()=>2}:sheet;
+ };
+ assert.throws(()=>h.ctx.submitVisit_(base(),user),/VISIT_SCHEMA_NOT_READY/);
+ assert.equal(h.state.writes,0);
+ assert.equal(h.state.headers,0);
+ assert.equal(h.state.lockCount,h.state.unlockCount);
+});
+test('published synthetic rule blocks at the real submitVisit boundary with zero writes',()=>{
+ const h=harness();
+ h.data.STUDENTS[0]['Drug Allergy']='BHHUATALLERGEN20261016';
+ h.data.DRUG_ALLERGY_RULES=[{
+  'Rule ID':'AR-SYNTHETIC',Status:'ACTIVE',
+  'Allergen Terms':'BHHUATALLERGEN20261016',
+  'Blocked Generic Terms':'ORAL REHYDRATION SALTS',
+  Reference:'Synthetic test rule only - no clinical use',
+  'Approved By':'UAT-TEST-ADMIN'
+ }];
+ const payload={...base(),studentDrugAllergySnapshot:'BHHUATALLERGEN20261016'};
+ assert.throws(()=>h.ctx.submitVisit_(payload,user),/DRUG_ALLERGY_HARD_STOP/);
+ assert.equal(h.state.writes,0);
+ assert.equal(h.state.headers,0);
+ assert.equal(h.state.lockCount,h.state.unlockCount);
+});
+test('draft synthetic rule does not block clinically unrelated ORS by itself',()=>{
+ const h=harness();
+ h.data.DRUG_ALLERGY_RULES=[{
+  'Rule ID':'AR-DRAFT',Status:'DRAFT',
+  'Allergen Terms':'NKDA','Blocked Generic Terms':'ORAL REHYDRATION SALTS',
+  Reference:'Synthetic rule pending review', 'Approved By':''
+ }];
+ const plan=[{master:{'Item Type':'MEDICATION','Generic Name':'Oral Rehydration Salts'}}];
+ assert.doesNotThrow(()=>h.ctx.enforceDrugAllergyRules_('NKDA',plan));
+ assert.equal(h.state.writes,0);
+});
+test('two public mutation aliases converge on one guarded backend path',()=>{
+ const h=harness();
+ h.ctx.requireSession_=()=>user;
+ for(const action of ['submitVisit','submitDispense']) {
+  const before=JSON.stringify(h.data);
+  assert.throws(()=>h.ctx.route_({action,token:'synthetic',payload:{
+    ...base(),items:[{itemCode:'MOCK-ITEM-005',qty:1}],
+    recipient:{recipientSource:'STUDENT_MASTER',recipientId:'MOCK-STU-003'},
+    studentId:'MOCK-STU-003',studentSafetyAcknowledged:true,
+    studentDrugAllergySnapshot:'PENICILLIN'
+  }}),/DRUG_ALLERGY_HARD_STOP/);
+  assert.equal(JSON.stringify(h.data),before);
+  assert.equal(h.state.writes,0);
+ }
+});
