@@ -15,7 +15,7 @@ export async function handleRequest(request,env,ctx,dependencies={}){
  const pathname=new URL(request.url).pathname;
  const gas=(body,opts)=>callGas(env,body,{fetchImpl:dependencies.fetchImpl||fetch,...opts});
  if(pathname==='/api/health'&&request.method==='GET'){
-  try{const health=await gas(null,{timeoutMs:8000});const version=String(health.apiVersion||'');if(!health.success||version!==REQUIRED_API_VERSION)return json({success:false,apiVersion:version,writer:'GAS_SHEETS',errorCode:'API_VERSION_MISMATCH'},503);return json({success:true,apiVersion:version,service:'BHH Infirmary Cloudflare Gateway',writer:'GAS_SHEETS'});}
+  try{const health=await gas(null,{timeoutMs:8000});const version=String(health.apiVersion||'');if(!health.success||version!==REQUIRED_API_VERSION)return json({success:false,apiVersion:version,writer:'GAS_SHEETS',errorCode:'API_VERSION_MISMATCH'},503);return json({success:true,apiVersion:version,service:'BHH Infirmary Cloudflare Gateway',writer:'GAS_SHEETS',buildId:String(health.buildId||'')});}
   catch(ex){return failUpstream('',ex);}
  }
  if(pathname==='/api/action'&&request.method==='POST'){
