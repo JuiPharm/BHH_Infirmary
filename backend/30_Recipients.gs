@@ -145,14 +145,14 @@ function studentDepartmentClass_(row) {
 // This rule does NOT constitute a general allergen-drug terminology engine.
 function knownPenicillinDrugConflict_(recordedAllergy,plans) {
   const allergy = String(recordedAllergy || '').toUpperCase();
-  const penicillinAllergy = /\\b(PENICILLIN|PENICILLINS|AMOXICILLIN|AMPICILLIN)\\b/.test(allergy);
+  const penicillinAllergy = /\b(PENICILLIN|PENICILLINS|AMOXICILLIN|AMPICILLIN)\b/.test(allergy);
   if (!penicillinAllergy) return false;
   return (plans || []).some(function(plan) {
     const master = plan && plan.master || {};
     if (normalizeItemType_(master['Item Type'] || '') !== 'DRUG') return false;
     // Match generic only to avoid misleading brand-name substring collisions.
     const generic = String(master['Generic Name'] || '').toUpperCase();
-    return /\\b(AMOXICILLIN|AMPICILLIN|PENICILLIN)\\b/.test(generic);
+    return /\b(AMOXICILLIN|AMPICILLIN|PENICILLIN)\b/.test(generic);
   });
 }
 
