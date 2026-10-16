@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 
 const root = resolve(import.meta.dirname, '../..');
-const source = ['backend/30_Recipients.gs','backend/60_Notification.gs','backend/70_DashboardP4.gs']
+const source = ['backend/30_Recipients.gs','backend/35_AllergyRules.gs','backend/60_Notification.gs','backend/70_DashboardP4.gs']
   .map(x => readFileSync(resolve(root,x),'utf8')).join('\n');
 
 function makeContext() {
@@ -26,6 +26,7 @@ function makeContext() {
     truncateAfterRow_:()=>{},
   });
   vm.runInContext(source,ctx);
+  ctx.getSpreadsheet_=()=>({getSheetByName:()=>null});
   return ctx;
 }
 
