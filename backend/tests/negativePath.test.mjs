@@ -210,3 +210,35 @@ test('two public mutation aliases converge on one guarded backend path',()=>{
   assert.equal(h.state.writes,0);
  }
 });
+
+test('STUDENT_MASTER: blank or unknown allergy history cannot be treated as NKDA',()=>{
+ for (const allergyValue of ['', 'UNKNOWN', 'ไม่ทราบ']) {
+  expectRejected(x=>({...x,items:[{itemCode:'MOCK-ITEM-005',qty:1}],
+    recipient:{recipientSource:'STUDENT_MASTER',recipientId:'MOCK-STU-002'},
+    studentId:'MOCK-STU-002',studentSafetyAcknowledged:true,
+    studentDrugAllergySnapshot:allergyValue}),
+    'STUDENT_ALLERGY_STATUS_UNVERIFIED',
+    d=>{d.STUDENTS[0]['Drug Allergy']=allergyValue;});
+ }
+});
+test('STAFF_MASTER: master identity is not an allergy assessment; unknown status is rejected',()=>{
+ const setup=d=>d.STAFF_MASTER.push({'Staff ID':'MOCK-STAFF-001','Full Name':'Mock Teacher',
+     'Recipient Type':'TEACHER',Department:'UAT',Status:'ACTIVE'});
+ expectRejected(x=>({...x,items:[{itemCode:'MOCK-ITEM-005',qty:1}],
+   recipient:{recipientSource:'STAFF_MASTER',recipientId:'MOCK-STAFF-001'},studentId:''}),
+   'ALLERGY_STATUS_REQUIRED',setup);
+});
+test('STAFF_MASTER: confirmed Penicillin allergy hard-stops Amoxicillin with zero writes',()=>{
+ expectRejected(x=>({...x,items:[{itemCode:'MOCK-ITEM-005',qty:1}],
+   recipient:{recipientSource:'STAFF_MASTER',recipientId:'MOCK-STAFF-001'},studentId:'',
+   drugAllergy:{status:'KNOWN_ALLERGY',drugGroup:'PENICILLIN',reaction:'Rash',note:'Synthetic only'}}),
+   'DRUG_ALLERGY_HARD_STOP',d=>d.STAFF_MASTER.push({'Staff ID':'MOCK-STAFF-001',
+   'Full Name':'Mock Teacher','Recipient Type':'TEACHER',Department:'UAT',Status:'ACTIVE'}));
+});
+test('STAFF_MASTER: supply-only visit does not require drug allergy assessment',()=>{
+ const h=harness();
+ const recipient={recipientSource:'STAFF_MASTER',recipientId:'MOCK-STAFF-001'};
+ assert.doesNotThrow(()=>h.ctx.validateFreeTextAllergyForDispense_(recipient,{},
+  [{master:{'Item Type':'MEDICAL_SUPPLY','Generic Name':'Gauze'}}]));
+ assert.equal(h.state.writes,0);
+});
