@@ -1,0 +1,47 @@
+name: GAS Sandbox UAT Package
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'scripts/package-gas-uat.mjs'
+      - '.github/workflows/package-gas-uat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-sandbox-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout candidate branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate Apps Script candidate
+        run: |
+          cat backend/*.gs > /tmp/bhh-gas-sandbox-validation.js
+          node --check /tmp/bhh-gas-sandbox-validation.js
+          node --test backend/tests/*.test.mjs
+
+      - name: Build sandbox package
+        run: node scripts/package-gas-uat.mjs
+
+      - name: Archive code-only GAS package
+        run: |
+          cd dist
+          zip -r -q BHH_Infirmary_GAS_SANDBOX_UAT.zip gas-sandbox-uat
+          unzip -l BHH_Infirmary_GAS_SANDBOX_UAT.zip
+
+      - name: Publish synthetic-only package
+        uses: actions/upload-artifact@v4
+        with:
+          name: BHH_Infirmary_GAS_SANDBOX_UAT
+          path: dist/BHH_Infirmary_GAS_SANDBOX_UAT.zip
+          retention-days: 14
+          if-no-files-found: error
