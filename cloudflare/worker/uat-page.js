@@ -12,9 +12,9 @@ button{font:inherit;border:0;border-radius:8px;padding:12px 17px;cursor:pointer;
 button:disabled{opacity:.55;cursor:wait}.secondary{background:#eef2f8;color:#193754;border:1px solid #bbcce0}
 p{line-height:1.7}.small{color:#65718a;font-size:13px}.output{white-space:pre-wrap;overflow-wrap:anywhere;background:#eef2f7;padding:12px;border-radius:8px;min-height:40px;font:13px ui-monospace,monospace}
 </style></head><body><header class="brand"><strong>BHH Infirmary — Bangkok Hospital Hatyai</strong></header>
-<main><section class="card"><div class="warning">AUTHENTICATION UAT ONLY — ห้ามใช้บัญชีหรือข้อมูลผู้รับบริการจริง</div>
+<main><section class="card"><div class="warning">SYNTHETIC SANDBOX UAT ONLY — ห้ามใช้บัญชีหรือข้อมูลผู้รับบริการจริง</div>
 <h1>ทดสอบเข้าสู่ระบบ GAS Sandbox</h1>
-<p>ระบบนี้ใช้ทดสอบ Login / Session / Logout เท่านั้น ไม่ใช่ระบบสำหรับบันทึก Visit, จ่ายยา หรือแก้ Stock</p>
+<p>ระบบนี้ใช้ทดสอบ Login / Session / Logout, อ่านข้อมูล และยืนยัน Publish กฎทดสอบสังเคราะห์ที่สร้างไว้แล้วเท่านั้น ไม่อนุญาตให้บันทึก Visit จ่ายยา หรือแก้ Stock</p>
 <form id="signin"><label for="staffId">Staff ID ของบัญชีทดสอบ</label><input id="staffId" name="staffId" required autocomplete="off" spellcheck="false" maxlength="80">
 <label for="password">รหัสผ่านบัญชีทดสอบ</label><input id="password" name="password" type="password" required autocomplete="off" maxlength="256">
 <button id="btnLogin" type="submit">ทดสอบ Login</button></form>
