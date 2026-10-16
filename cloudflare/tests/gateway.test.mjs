@@ -49,3 +49,36 @@ test('UAT auth mode blocks other mutations and reads',async()=>{
     assert.equal(r.status,403,action);
   }
 });
+
+test('UAT_READ_ONLY accepts authenticated inventory and symptoms',async()=>{
+  const e={...env,GATEWAY_MODE:'UAT_READ_ONLY'};
+  const login=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
+  assert.equal(login.status,200);
+  const cookie=login.headers.get('set-cookie').split(';')[0];
+  for(const action of ['getStock','getStockLots','getSymptoms','getInventoryIntegrity','getDispenseHistory','getDashboardV2']){
+    const response=await handleRequest(request(action,{},cookie),e,null,dep);
+    assert.equal(response.status,200,action);
+  }
+});
+test('UAT_READ_ONLY rejects all writes even with authenticated session',async()=>{
+  const e={...env,GATEWAY_MODE:'UAT_READ_ONLY'};
+  const login=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
+  const cookie=login.headers.get('set-cookie').split(';')[0];
+  let invoked=0;
+  for(const action of ['submitVisit','submitDispense','receiveStock','adjustStock','submitStockCount','resetPassword','createUser','updateConfig','importStudents','retryNotification']){
+    const response=await handleRequest(request(action,{clientTransactionId:'MOCK-TXN'},cookie),e,null,{fetchImpl:async()=>{invoked++; throw Error('Blocked action reached GAS')}});
+    assert.equal(response.status,403,action);
+    assert.equal((await response.json()).errorCode,'PREVIEW_ACTION_DISABLED');
+  }
+  assert.equal(invoked,0);
+});
+test('UAT_READ_ONLY still requires a signed session for read actions',async()=>{
+  const e={...env,GATEWAY_MODE:'UAT_READ_ONLY'};
+  const response=await handleRequest(request('getStock'),e,null,dep);
+  assert.equal(response.status,401);
+});
+test('UAT_READ_ONLY denies actions outside narrow allowlist',async()=>{
+  const e={...env,GATEWAY_MODE:'UAT_READ_ONLY'};
+  const r=await handleRequest(request('getUsers'),e,null,dep);
+  assert.equal(r.status,403);
+});
