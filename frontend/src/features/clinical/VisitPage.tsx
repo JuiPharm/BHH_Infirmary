@@ -634,12 +634,15 @@ export const VisitPage: React.FC = () => {
       loadItems();
     } catch (err: any) {
       const message = err?.message || 'เกิดข้อผิดพลาดในการบันทึก Visit';
+      const allergyHardStop = err?.errorCode === 'DRUG_ALLERGY_HARD_STOP' || /DRUG_ALLERGY_HARD_STOP/.test(message);
       const mayHaveCommitted =
         err?.errorCode === 'OPERATION_STATUS_UNKNOWN' ||
         /TIMEOUT|NETWORK|ไม่สามารถเชื่อมต่อ|ใช้เวลานาน|Duplicate|duplicate|ถูกประมวลผล/i.test(message);
       Swal.fire({
-        title: mayHaveCommitted ? 'ยังยืนยันผลการบันทึกไม่ได้' : 'บันทึกไม่สำเร็จ',
-        text: mayHaveCommitted
+        title: allergyHardStop ? 'หยุดจ่ายยา — พบความเสี่ยงแพ้ยา' : mayHaveCommitted ? 'ยังยืนยันผลการบันทึกไม่ได้' : 'บันทึกไม่สำเร็จ',
+        text: allergyHardStop
+          ? message + '\nห้ามจ่ายยารายการนี้จนกว่าจะได้รับการประเมินจากบุคลากรทางคลินิกที่มีอำนาจ'
+          : mayHaveCommitted
           ? message + '\nห้ามบันทึก Visit ซ้ำทันที โปรดตรวจสอบประวัติ Visit ก่อน เพื่อป้องกันการจ่ายสต็อกซ้ำ'
           : message,
         icon: mayHaveCommitted ? 'warning' : 'error'
