@@ -51,3 +51,36 @@ Audit row count can include unrelated session/login entries from an operator; th
 
 ## Post Gate 1
 Gate 1 success establishes a controlled **real GAS function negative-path test**, not a production cutover. It does not supersede Gate 2 (disposable sandbox multi-write rollback/concurrency), Gate 3 (clinical approval), Gate 4 (notification/dashboard & roles), Gate 5 (security and cutover). Keep Draft PR #10 unmerged and `GATEWAY_MODE=UAT_READ_ONLY`.
+
+
+## Gate 1 operator evidence — 2026-10-16
+
+**Status: PASS for the four controlled, fixed-fixture tests of real GAS `submitVisit_`** — operator-supplied Apps Script Editor result:
+
+```json
+{
+  "status": "PASS",
+  "environment": "SYNTHETIC_GAS_SANDBOX",
+  "scope": "REAL_SUBMIT_VISIT_NEGATIVE_PATH",
+  "buildId": "BHHINF-P1-SAFETY-20261016-R2",
+  "cases": [
+    {"case":"PENICILLIN_AMOXICILLIN","result":"PASS","code":"DRUG_ALLERGY_HARD_STOP","visitWrites":0,"stockWrites":0},
+    {"case":"STUDENT_UNKNOWN_HISTORY","result":"PASS","code":"STUDENT_ALLERGY_STATUS_UNVERIFIED","visitWrites":0,"stockWrites":0},
+    {"case":"STAFF_KNOWN_PENICILLIN","result":"PASS","code":"DRUG_ALLERGY_HARD_STOP","visitWrites":0,"stockWrites":0},
+    {"case":"STAFF_ALLERGY_MISSING","result":"PASS","code":"ALLERGY_STATUS_REQUIRED","visitWrites":0,"stockWrites":0}
+  ],
+  "visitWrites":0,
+  "stockWrites":0,
+  "notificationWrites":0,
+  "auditWrites":0
+}
+```
+
+Independent read-only Google Sheets reconciliation after receiving the result:
+- DISPENSE_HEADER **11**, DISPENSE_ITEMS **3**, STOCK_TRANSACTION **18**, NOTIFICATION_LOG **4**.
+- MOCK-LOT-003A **29**, MOCK-LOT-003B **50**, MOCK-LOT-005A **20**; aggregate ORS **79**, Amoxicillin **20**.
+- DRUG_ALLERGY_RULES one synthetic ACTIVE rule `AR07c10f3cb053440fbc`.
+- Referral and emergency email toggles `FALSE`, all four TO/CC fields blank.
+- AUDIT_LOG currently **23**; newest entry `LOGIN / SUCCESS` (one additional login compared with earlier baseline 22). No observed new Dispense/Clinical UAT audit. This reconciles independently with zero clinical transaction writes, but is not proof against unrelated concurrent activity.
+
+This meets **Gate 1 for the four scoped live negative cases**, not an exhaustive clinical safety or end-to-end Production release. Further testing of broader allergy terminology, rollback/concurrency, notifications, and security remains open. Preserve the original operator result and snapshot as evidence.
