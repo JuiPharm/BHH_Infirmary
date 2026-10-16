@@ -151,3 +151,51 @@ test('old combined UAT_RULE_SINGLE mode is rejected fail closed',async()=>{
  assert.equal(r.status,403);
  assert.equal((await r.json()).errorCode,'PREVIEW_POST_DISABLED');
 });
+
+test('read-only clinical check requires auth and is forwarded only in permitted mode',async()=>{
+ const e={...env,GATEWAY_MODE:'UAT_READ_ONLY'};
+ const noAuth=await handleRequest(request('runSyntheticAllergySafetyCheck'),e,null,dep);
+ assert.equal(noAuth.status,401);
+ let called=0;
+ const fake={fetchImpl:async(url,options)=>{
+  const action=JSON.parse(options.body||'{}').action;called++;
+  if(action==='login')return Response.json({success:true,data:{token:'GAS_TEST_ONLY',staffId:'UAT-TEST-ADMIN',role:'SUPER_ADMIN'}});
+  if(action==='runSyntheticAllergySafetyCheck')return Response.json({success:true,data:{
+   mode:'READ_ONLY',fixture:'SYNTHETIC_ONLY',baselineLocked:true,
+   penicillinAmoxicillinBlocked:true,syntheticActiveRuleBlocked:true,
+   unrelatedOrsAllowed:true,visitWrites:0,stockWrites:0}});
+  throw Error('Unexpected GAS action: '+action);
+ }};
+ const login=await handleRequest(request('login',{staffId:'UAT-TEST-ADMIN',password:'synthetic'}),e,null,fake);
+ assert.equal(login.status,200);
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ const result=await handleRequest(request('runSyntheticAllergySafetyCheck',{},cookie),e,null,fake);
+ assert.equal(result.status,200);
+ const body=await result.json();
+ assert.equal(body.success,true);
+ assert.equal(body.data.mode,'READ_ONLY');
+ assert.equal(body.data.penicillinAmoxicillinBlocked,true);
+ assert.equal(called,2);
+});
+test('dry-run cannot be used in authentication-only mode or to mutate stock',async()=>{
+ for(const mode of ['UAT_AUTH_ONLY','BLOCK_ALL']){
+  const r=await handleRequest(request('runSyntheticAllergySafetyCheck'),{...env,GATEWAY_MODE:mode},null,dep);
+  assert.equal(r.status,403,mode);
+ }
+ const e={...env,GATEWAY_MODE:'UAT_READ_ONLY'};
+ const l=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
+ const cookie=l.headers.get('set-cookie').split(';')[0];
+ for(const action of ['submitVisit','adjustStock','saveDrugAllergyRule','publishDrugAllergyRule']){
+  const r=await handleRequest(request(action,{},cookie),e,null,dep);
+  assert.equal(r.status,403,action);
+ }
+});
+test('missing deployed clinical diagnostic fails closed with error response',async()=>{
+ const e={...env,GATEWAY_MODE:'UAT_READ_ONLY'};
+ const l=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
+ const cookie=l.headers.get('set-cookie').split(';')[0];
+ const diagnostic=await handleRequest(request('runSyntheticAllergySafetyCheck',{},cookie),e,null,{
+  fetchImpl:async()=>Response.json({success:false,errorCode:'UNKNOWN_ACTION'})
+ });
+ assert.equal((await diagnostic.json()).success,false);
+});
