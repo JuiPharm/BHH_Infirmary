@@ -8,7 +8,7 @@ const sourceFiles=['Code.gs','30_Recipients.gs','35_AllergyRules.gs','36_Allergy
 const output=join(root,'dist','gas-sandbox-uat');
 mkdirSync(output,{recursive:true});
 const sourceText=readFileSync(join(root,'backend','Code.gs'),'utf8');
-const idMatch=sourceText.match(/const GAS_SOURCE_BUILD_ID\\s*=\\s*'([^']+)'/);
+const idMatch=sourceText.match(/const GAS_SOURCE_BUILD_ID\s*=\s*'([^']+)'/);
 if(!idMatch)throw Error('Missing GAS_SOURCE_BUILD_ID in Code.gs');
 const manifest={
  application:'BHH Infirmary',
