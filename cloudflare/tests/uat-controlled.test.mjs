@@ -10,21 +10,28 @@ class Db {
  constructor(){this.state=null;this.history=[];this.forceClaimFailure=false;this.forceUpdateFailure=false;}
  prepare(sql){
   const db=this;
-  return {bind(...args){return {async run(){
-   if(sql.startsWith('INSERT')){
-    if(db.forceClaimFailure)throw Error('D1 down');
-    if(db.state)return {meta:{changes:0}};
-    db.state={id:args[0],state:'SUBMITTING',beforeQty:args[2],transactionId:args[3]};
-    db.history.push('CLAIM');
-    return {meta:{changes:1}};
+  return {
+   bind(...args){
+    return {
+     async run(){
+      if(sql.startsWith('INSERT')){
+       if(db.forceClaimFailure)throw Error('D1 down');
+       if(db.state)return {meta:{changes:0}};
+       db.state={id:args[0],state:'SUBMITTING',beforeQty:args[2],transactionId:args[3]};
+       db.history.push('CLAIM');
+       return {meta:{changes:1}};
+      }
+      if(sql.startsWith('UPDATE')){
+       if(db.forceUpdateFailure)throw Error('D1 down');
+       if(!db.state||db.state.state!=='SUBMITTING')return {meta:{changes:0}};
+       db.state.state=args[0];db.state.reason=args[1];db.state.visitId=args[2];db.state.afterQty=args[3];
+       db.history.push(args[0]);return {meta:{changes:1}};
+      }
+      throw Error('Unexpected SQL');
+     }
+    };
    }
-   if(sql.startsWith('UPDATE')){
-    if(db.forceUpdateFailure)throw Error('D1 down');
-    if(!db.state||db.state.state!=='SUBMITTING')return {meta:{changes:0}};
-    db.state.state=args[0];db.state.reason=args[1];db.state.visitId=args[2];db.state.afterQty=args[3];
-    db.history.push(args[0]);return {meta:{changes:1}};
-   }
-   throw Error('Unexpected SQL');}}};}
+  };
  }
 }
 function mockGas({role=USER,mutate=false,mismatch=false,transportFailure=false}={}){
