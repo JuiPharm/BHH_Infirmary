@@ -25,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setTab }) => {
     { id: 'inventory-ops', label: 'Inventory Ops', show: ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(role) },
     { id: 'users', label: 'จัดการผู้ใช้', show: ['ADMIN', 'SUPER_ADMIN'].includes(role) },
     { id: 'config', label: 'ตั้งค่าระบบ', show: ['SUPER_ADMIN'].includes(role) },
+    { id: 'allergy-rules', label: 'กฎแพ้ยา', show: ['SUPER_ADMIN'].includes(role) },
   ].filter(item => item.show);
 
   const handleLogout = () => {
