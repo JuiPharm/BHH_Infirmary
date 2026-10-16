@@ -2,6 +2,7 @@ import {ALLOWED_ACTIONS,MUTATING_ACTIONS,REQUIRED_API_VERSION} from './contracts
 import {seal,unseal,getCookie,setCookie,clearCookie,redactSession} from './session.js';
 import {callGas} from './upstream.js';
 import {UAT_AUTH_PAGE} from './uat-page.js';
+import {executeSyntheticUatVisit} from './uat-controlled.js';
 const MAX_BODY_BYTES=256*1024;
 const HEADERS={'Content-Type':'application/json;charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 const HTTP={AUTH_REQUIRED:401,INVALID_SESSION:401,INVALID_CREDENTIALS:401,ACCESS_DENIED:403,UNKNOWN_ACTION:404,UPSTREAM_UNAVAILABLE:502,UPSTREAM_INVALID_RESPONSE:502,UPSTREAM_REDIRECT_BLOCKED:502,GATEWAY_NOT_CONFIGURED:503,API_VERSION_MISMATCH:503,OPERATION_STATUS_UNKNOWN:503};
@@ -25,7 +26,7 @@ export async function handleRequest(request,env,ctx,dependencies={}){
   const action=input.action,payload=input.payload&&typeof input.payload==='object'&&!Array.isArray(input.payload)?input.payload:{};
   // Fail closed: public Sandbox may exercise authentication only. Clinical/inventory never passes.
   const mode=String(env.GATEWAY_MODE||'BLOCK_ALL');
-  if(!['UAT_AUTH_ONLY','UAT_READ_ONLY','LEGACY_GAS_SINGLE_WRITER'].includes(mode))
+  if(!['UAT_AUTH_ONLY','UAT_READ_ONLY','UAT_WRITE_SINGLE','LEGACY_GAS_SINGLE_WRITER'].includes(mode))
    return error('PREVIEW_POST_DISABLED',403);
   const authActions=['login','getSession','logout'];
   const uatReadActions=['getStock','getStockLots','getSymptoms','getInventoryIntegrity','getDispenseHistory','getDashboardV2'];
@@ -33,6 +34,9 @@ export async function handleRequest(request,env,ctx,dependencies={}){
    return error('PREVIEW_ACTION_DISABLED',403);
   if(mode==='UAT_READ_ONLY'&&!authActions.includes(action)&&!uatReadActions.includes(action))
    return error('PREVIEW_ACTION_DISABLED',403);
+  if(mode==='UAT_WRITE_SINGLE'&&!authActions.includes(action)&&!uatReadActions.includes(action)&&action!=='submitSyntheticUatVisit')
+   return error('PREVIEW_ACTION_DISABLED',403);
+  if(action==='submitSyntheticUatVisit'&&mode!=='UAT_WRITE_SINGLE')return error('PREVIEW_ACTION_DISABLED',403);
 
   if(action==='login'){
    if(typeof payload.staffId!=='string'||typeof payload.password!=='string'||!payload.staffId.trim()||!payload.password)return error('INVALID_CREDENTIALS',401);
@@ -42,6 +46,10 @@ export async function handleRequest(request,env,ctx,dependencies={}){
   }
   const cookie=getCookie(request);if(!cookie)return error('AUTH_REQUIRED',401);
   let token;try{token=await unseal(cookie,env);}catch(ex){return error(ex?.message==='GATEWAY_NOT_CONFIGURED'?'GATEWAY_NOT_CONFIGURED':'INVALID_SESSION',undefined,clearCookie());}
+  if(action==='submitSyntheticUatVisit') {
+   const attempt=await executeSyntheticUatVisit(gas,env,token);
+   return json(attempt.body,attempt.status);
+  }
   if(action==='logout'){
    try{await gas({action,payload:{},token},{timeoutMs:10000});}catch{}
    return json({success:true,data:null},200,clearCookie());
