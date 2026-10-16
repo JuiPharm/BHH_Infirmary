@@ -42,12 +42,13 @@ function harness(){
  })},Utilities:{getUuid:()=> '12345678-1234-4321-1234-123456789012',
    formatDate:()=> '2026-10-16 13:45:00'}});
  vm.runInContext(source,ctx);
+ const visitHeaders=vm.runInContext('HEADERS.DISPENSE_HEADER',ctx);
  function mockSheet(name){
   return {
    getDataRange(){return {getValues(){return name==='STOCK_LOT'?[lotHeaders,...data.STOCK_LOT.map(x=>[...x])]:[]}};},
    getLastRow(){return name==='STOCK_LOT'?1+data.STOCK_LOT.length:1+(data[name]||[]).length;},
-   getLastColumn(){return name==='DISPENSE_HEADER'?ctx.HEADERS.DISPENSE_HEADER.length:10;},
-   getRange(){return {getValues(){return [ctx.HEADERS.DISPENSE_HEADER]},
+   getLastColumn(){return name==='DISPENSE_HEADER'?visitHeaders.length:10;},
+   getRange(){return {getValues(){return [visitHeaders]},
        setValues(){state.writes++;throw Error('UNEXPECTED_WRITE_IN_NEGATIVE_TEST')}};},
    appendRow(){state.writes++;throw Error('UNEXPECTED_WRITE_IN_NEGATIVE_TEST');},
    deleteRows(){state.writes++;throw Error('UNEXPECTED_DELETE_IN_NEGATIVE_TEST');}
