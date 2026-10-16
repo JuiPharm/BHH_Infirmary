@@ -1822,6 +1822,7 @@ function humanError_(code) {
     TRANSACTION_ROLLBACK_FAILED:'เกิดข้อผิดพลาดร้ายแรงระหว่างย้อนคืนรายการ กรุณาหยุดใช้งานรายการนี้และให้ผู้ดูแลตรวจสอบ Audit Log',
     VISIT_CLINICAL_DATA_REQUIRED:'กรุณาระบุอาการ บันทึก หรือผลการประเมินอย่างน้อย 1 รายการ',
     VISIT_SCHEMA_NOT_READY:'โครงสร้างข้อมูล Visit ยังไม่พร้อม กรุณาติดต่อผู้ดูแลให้ตรวจสอบ Migration ก่อนใช้งาน',
+    ALLERGY_RULES_UNAVAILABLE:'ไม่พบฐานข้อมูลกฎแพ้ยาที่พร้อมใช้งาน ระบบระงับการจ่ายยาจนกว่าจะตรวจสอบและแก้ไข',
     DISPOSITION_REQUIRED:'กรุณาระบุผลลัพธ์หลังรับบริการ (Disposition)',
     INVALID_DISPOSITION:'ค่า Disposition ไม่ถูกต้อง',
     INVALID_VITAL_SIGN:'ค่าชีพจรหรือสัญญาณชีพไม่ถูกต้อง',
