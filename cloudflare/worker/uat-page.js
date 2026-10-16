@@ -21,10 +21,8 @@ p{line-height:1.7}.small{color:#65718a;font-size:13px}.output{white-space:pre-wr
 <div><button id="btnSession" class="secondary" type="button">ตรวจ Session</button>
 <button id="btnLogout" class="secondary" type="button">Logout</button></div>
 <div style="border-top:1px solid #dfe8f2;margin-top:24px;padding-top:20px">
-<h2 style="font-size:18px">Controlled Write UAT — หนึ่งรายการเท่านั้น</h2>
-<p class="small">กดเมื่อพร้อมทดสอบจ่ายยาใน <strong>Sandbox</strong> เท่านั้น ระบบจะบันทึก Visit จำลองให้ MOCK-STU-002 และตัด <strong>MOCK-ITEM-003 (ORS) จำนวน 1 ซอง</strong> จาก MOCK-LOT-003A โดยตรวจก่อน 30 → หลัง 29, LOT-003B คงเดิม 50, Email ปิด</p>
-<p class="warning">สำคัญ: ทำได้หนึ่งครั้งเท่านั้น หากผลไม่แน่นอนจะไม่ส่งซ้ำ และต้องตรวจบันทึกก่อนดำเนินการต่อ</p>
-<button id="btnWrite" type="button" style="background:#9b4217">ยืนยัน Controlled Write UAT (1 Visit / 1 ซอง)</button>
+<h2 style="font-size:18px">Controlled Write UAT — Complete</h2>
+<p class="small">Synthetic one-shot Visit Vde2628c7874d4471 ผ่านการกระทบยอดแล้ว (MOCK-LOT-003A 30 → 29) และถูกปิดไม่ให้ส่งซ้ำ ขณะนี้หน้า Preview เปิดเฉพาะ Login / Session / Logout และรายการอ่านข้อมูลเท่านั้น</p>
 </div>
 <div style="border-top:1px solid #dfe8f2;margin-top:24px;padding-top:20px">
 <h2 style="font-size:18px">Read-only UAT (ข้อมูลจำลอง)</h2>
@@ -55,19 +53,6 @@ form.addEventListener('submit',async(e)=>{e.preventDefault();login.disabled=true
  catch(e){status.textContent='ไม่สำเร็จ: '+e.message;}finally{document.getElementById('password').value='';login.disabled=false;}});
 document.getElementById('btnSession').addEventListener('click',async()=>{try{status.textContent=await call('getSession');}catch(e){status.textContent='Session: '+e.message;}});
 document.getElementById('btnLogout').addEventListener('click',async()=>{try{status.textContent=await call('logout');}catch(e){status.textContent='Logout: '+e.message;}});
-document.getElementById('btnWrite').addEventListener('click',async()=>{
- if(!window.confirm('ยืนยันการทดสอบเขียนข้อมูลจำลองหนึ่ง Visit และลด MOCK-LOT-003A จำนวน 1 หน่วย ใน Google Sheets Sandbox เท่านั้น?'))return;
- const button=document.getElementById('btnWrite');button.disabled=true;status.textContent='กำลังทำ Controlled Write UAT... ห้ามกดซ้ำ';
- try{
-  const response=await fetch('/api/action',{method:'POST',credentials:'same-origin',cache:'no-store',redirect:'error',
-   headers:{'content-type':'application/json','X-BHH-Gateway':'1'},body:JSON.stringify({action:'submitSyntheticUatVisit',payload:{}})});
-  const body=await response.json();
-  if(!response.ok||body.success!==true)throw Error(String(body.errorCode||'UAT_UNCONFIRMED'));
-  status.textContent='UAT WRITE PASS: '+String(body.data?.visitId||'')+' · Lot '+String(body.data?.stockLotId||'')+
-    ' · '+String(body.data?.beforeQty||'?')+' → '+String(body.data?.afterQty||'?')+' · ไม่ส่ง Email';
- }catch(error){status.textContent='UAT WRITE REQUIRES REVIEW: '+String(error?.message||'UNKNOWN')+
-   ' · อย่าส่งซ้ำ ให้ตรวจ Visit History, Stock และแจ้งผลก่อน';}
-});
 document.querySelectorAll('[data-read]').forEach(button=>button.addEventListener('click',async()=>{
  const action=button.dataset.read;button.disabled=true;status.textContent='กำลังตรวจ '+action+' ...';
  try{
