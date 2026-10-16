@@ -1,8 +1,8 @@
 import { ApiResponse } from './types';
 
-export const DEFAULT_GAS_URL =
-  import.meta.env.VITE_GAS_URL ||
-  'https://script.google.com/macros/s/AKfycbwC7zeux5tDqr_C-2AwtllHIFDXkXyvVQ0J7BoI-3u55xQ6vSslP5VxwZCxFKjZmB_h/exec';
+// Same-origin P1 Gateway. Do not expose GAS endpoint to browser.
+export const DEFAULT_GAS_URL = '/api/action';
+export const DEFAULT_HEALTH_URL = '/api/health';
 
 export const REQUIRED_API_VERSION = '2.4.1';
 
@@ -14,7 +14,7 @@ export interface BackendHealth {
 }
 
 export async function getBackendHealth(
-  url: string = DEFAULT_GAS_URL,
+  url: string = DEFAULT_HEALTH_URL,
   timeoutMs: number = 8000
 ): Promise<BackendHealth> {
   const controller = new AbortController();
@@ -37,6 +37,10 @@ export async function getBackendHealth(
 const ERROR_MESSAGES_TH: Record<string, string> = {
   AUTH_REQUIRED: 'กรุณาเข้าสู่ระบบก่อนดำเนินการ',
   INVALID_SESSION: 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่',
+  OPERATION_STATUS_UNKNOWN: 'ยังยืนยันผลการบันทึกไม่ได้ กรุณาตรวจสอบ Visit History ก่อนทำรายการซ้ำ',
+  GATEWAY_NOT_CONFIGURED: 'ระบบ Gateway ยังไม่ได้ตั้งค่า ห้ามทำรายการจนกว่าผู้ดูแลจะแก้ไข',
+  UPSTREAM_UNAVAILABLE: 'ไม่สามารถเชื่อมต่อระบบข้อมูลได้',
+  API_VERSION_MISMATCH: 'เวอร์ชันของระบบฐานข้อมูลไม่ตรงกับที่รองรับ',
   INVALID_CREDENTIALS: 'Staff ID หรือ Password ไม่ถูกต้อง',
   ACCESS_DENIED: 'คุณไม่มีสิทธิ์ในการดำเนินการนี้',
   STUDENT_NOT_FOUND: 'ไม่พบข้อมูลนักเรียนในระบบ',
@@ -172,19 +176,14 @@ export async function api<T>(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // Google Apps Script requires text/plain and redirect follow
+    // The HttpOnly session cookie is the credential; browser token is an inert compatibility marker.
     response = await fetch(url, {
       method: 'POST',
-      mode: 'cors',
-      redirect: 'follow',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8'
-      },
-      body: JSON.stringify({
-        action,
-        payload,
-        token
-      }),
+      mode: 'same-origin',
+      credentials: 'same-origin',
+      redirect: 'error',
+      headers: { 'Content-Type': 'application/json', 'X-BHH-Gateway': '1' },
+      body: JSON.stringify({action,payload,token: token ? 'gateway-session' : undefined}),
       signal: controller.signal
     });
   } catch (err: any) {
@@ -199,7 +198,12 @@ export async function api<T>(
   }
 
   if (!response.ok) {
-    throw new Error(`HTTP Error ${response.status}: ${response.statusText}`);
+    let payload: ApiResponse<T> | null = null;
+    try { payload = (await response.clone().json()) as ApiResponse<T>; } catch {}
+    const code = payload?.errorCode || 'SERVER_ERROR';
+    const err = new Error(getErrorMessage(code));
+    (err as any).errorCode = code;
+    throw err;
   }
 
   let json: ApiResponse<T>;
