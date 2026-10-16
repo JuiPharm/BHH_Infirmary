@@ -4,29 +4,37 @@ import {executeRuleDraftUat,executeRulePublishUat,ALLERGY_UAT_ID,SYNTHETIC_RULE}
 const baseline={'Rule ID':'SYSTEM-PENICILLIN-HARD-STOP',Status:'LOCKED'};
 class DB{
  constructor(){this.row=null;this.failClaim=false;this.failUpdate=false;}
- prepare(sql){const db=this;return{bind(...args){return{
- async run(){
-  if(db.failClaim&&sql.startsWith('INSERT'))throw Error('D1 failed before request');
-  if(sql.startsWith('INSERT')){
-   if(db.row)return {meta:{changes:0}};
-   db.row={state:'DRAFT_SUBMITTING',rule_id:null};
-   return {meta:{changes:1}};
-  }
-  if(db.failUpdate)throw Error('D1 update unavailable');
-  if(sql.startsWith("UPDATE uat_allergy_rule_gate SET state='PUBLISH_SUBMITTING'")){
-   if(db.row?.state!=='DRAFT_CONFIRMED')return {meta:{changes:0}};
-   db.row.state='PUBLISH_SUBMITTING';return {meta:{changes:1}};
-  }
-  if(sql.startsWith('UPDATE')){
-   const [state,reason,id,changed,testId,expected]=args;
-   assert.equal(testId,ALLERGY_UAT_ID);
-   if(db.row?.state!==expected)return {meta:{changes:0}};
-   db.row.state=state;db.row.reason=reason;if(id)db.row.rule_id=id;return {meta:{changes:1}};
-  }
-  throw Error('Unexpected query '+sql);
- },
- async first(){return db.row&&{...db.row};}
- };}}};}
+ prepare(sql){
+  const db=this;
+  return {
+   bind(...args){
+    return {
+     async run(){
+      if(db.failClaim&&sql.startsWith('INSERT'))throw Error('D1 failed before request');
+      if(sql.startsWith('INSERT')){
+       if(db.row)return {meta:{changes:0}};
+       db.row={state:'DRAFT_SUBMITTING',rule_id:null};
+       return {meta:{changes:1}};
+      }
+      if(db.failUpdate)throw Error('D1 update unavailable');
+      if(sql.startsWith("UPDATE uat_allergy_rule_gate SET state='PUBLISH_SUBMITTING'")){
+       if(db.row?.state!=='DRAFT_CONFIRMED')return {meta:{changes:0}};
+       db.row.state='PUBLISH_SUBMITTING';return {meta:{changes:1}};
+      }
+      if(sql.startsWith('UPDATE')){
+       const [state,reason,id,changed,testId,expected]=args;
+       assert.equal(testId,ALLERGY_UAT_ID);
+       if(db.row?.state!==expected)return {meta:{changes:0}};
+       db.row.state=state;db.row.reason=reason;if(id)db.row.rule_id=id;
+       return {meta:{changes:1}};
+      }
+      throw Error('Unexpected query '+sql);
+     },
+     async first(){return db.row&&{...db.row};}
+    };
+   }
+  };
+ }
 }
 function mockGas({role='SUPER_ADMIN',failDraft=false,failPublish=false,incorrectBaseline=false}={}){
  const rules=[incorrectBaseline?{'Rule ID':'SYSTEM-PENICILLIN-HARD-STOP',Status:'ACTIVE'}:baseline];
