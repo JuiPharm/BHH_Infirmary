@@ -26,7 +26,8 @@ function makeContext() {
     truncateAfterRow_:()=>{},
   });
   vm.runInContext(source,ctx);
-  ctx.getSpreadsheet_=()=>({getSheetByName:()=>null});
+  // The read-only registry sheet exists in a correctly migrated clinical deployment.
+  ctx.getSpreadsheet_=()=>({getSheetByName:(name)=>name==='DRUG_ALLERGY_RULES'?{}:null});
   return ctx;
 }
 
