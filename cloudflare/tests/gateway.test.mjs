@@ -6,7 +6,7 @@ const ORIGIN='https://bhh-infirmary-p1-preview.example';
 const env={GAS_WEB_APP_URL:'https://script.google.com/macros/s/SYNTHETIC/exec',SESSION_KEY_B64:randomBytes(32).toString('base64'),GATEWAY_MODE:'LEGACY_GAS_SINGLE_WRITER'};
 const mockFetch=async (url,init)=>{
   const req=JSON.parse(init.body||'{}');
-  if(init.method==='GET')return Response.json({success:true,apiVersion:'2.4.1'});
+  if(init.method==='GET')return Response.json({success:true,apiVersion:'2.4.1',buildId:'BHHINF-P1-SAFETY-20261016-R2'});
   if(req.action==='login')return Response.json({success:true,data:{token:'INTERNAL_GAS_TOKEN',staffId:'00001',name:'Test Nurse',role:'NURSE'}});
   if(req.action==='getSession')return Response.json({success:true,data:{token:'INTERNAL_GAS_TOKEN',staffId:'00001',name:'Test Nurse',role:'NURSE'}});
   if(req.action==='submitVisit')return Response.json({success:true,data:{visitId:'VISIT_SYNTHETIC',status:'COMPLETED'}});
@@ -17,6 +17,13 @@ function request(action,payload={},cookie='',options={}){
 }
 const dep={fetchImpl:mockFetch};
 test('health checks GAS version',async()=>{const r=await handleRequest(new Request(ORIGIN+'/api/health'),env,null,dep);assert.equal(r.status,200);assert.equal((await r.json()).writer,'GAS_SHEETS');});
+test('GET health forwards source build identity for deploy provenance without leaking credentials',async()=>{
+ const r=await handleRequest(new Request(ORIGIN+'/api/health'),env,null,dep);
+ const h=await r.json();
+ assert.equal(h.buildId,'BHHINF-P1-SAFETY-20261016-R2');
+ assert.equal(h.writer,'GAS_SHEETS');
+ assert.equal(JSON.stringify(h).includes('INTERNAL_GAS_TOKEN'),false);
+});
 test('login stores GAS token only in encrypted HttpOnly cookie',async()=>{const r=await handleRequest(request('login',{staffId:'00001',password:'fake'}),env,null,dep);assert.equal(r.status,200);const body=await r.json();assert.equal(body.data.token,'gateway-session');const cookie=r.headers.get('Set-Cookie');assert.match(cookie,/HttpOnly/);assert.match(cookie,/SameSite=Strict/);assert.doesNotMatch(cookie,/INTERNAL_GAS_TOKEN/);});
 test('getSession returns sanitized session',async()=>{const login=await handleRequest(request('login',{staffId:'00001',password:'fake'}),env,null,dep);const cookie=login.headers.get('set-cookie').split(';')[0];const r=await handleRequest(request('getSession',{},cookie),env,null,dep);assert.equal(r.status,200);assert.equal((await r.json()).data.token,'gateway-session');});
 test('protect all authenticated routes',async()=>{const r=await handleRequest(request('getUsers'),env,null,dep);assert.equal(r.status,401);});
