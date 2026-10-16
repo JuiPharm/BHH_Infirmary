@@ -2,7 +2,7 @@ const SHEETS = {
   CONFIG:'CONFIG', USERS:'USERS', STUDENTS:'STUDENTS', STAFF_MASTER:'STAFF_MASTER', ITEM_MASTER:'ITEM_MASTER',
   STOCK_LOT:'STOCK_LOT', DISPENSE_HEADER:'DISPENSE_HEADER', DISPENSE_ITEMS:'DISPENSE_ITEMS',
   STOCK_TRANSACTION:'STOCK_TRANSACTION', STOCK_COUNT:'STOCK_COUNT', SYMPTOMS:'SYMPTOMS',
-  NOTIFICATION_LOG:'NOTIFICATION_LOG', AUDIT_LOG:'AUDIT_LOG'
+  NOTIFICATION_LOG:'NOTIFICATION_LOG', AUDIT_LOG:'AUDIT_LOG', ALLERGY_RULES:'DRUG_ALLERGY_RULES'
 };
 
 const HEADERS = {
@@ -18,7 +18,8 @@ const HEADERS = {
   STOCK_COUNT:['Count ID','Count Line ID','Count Date','Stock Lot ID','Item Code','System Qty','Counted Qty','Variance','Reason','Staff ID','Created At'],
   SYMPTOMS:['Symptom ID','Symptom','Category','Active','Sort Order','Clinical Alert Level','Updated At','Updated By'],
   NOTIFICATION_LOG:['Notification ID','Visit ID','Notification Type','Channel','Recipient','CC','Subject','Status','Attempt Count','Created At','Sent At','Error Message','Staff ID'],
-  AUDIT_LOG:['Log ID','Timestamp','Staff ID','Action','Module','Reference ID','Result','Client Info','User Agent']
+  AUDIT_LOG:['Log ID','Timestamp','Staff ID','Action','Module','Reference ID','Result','Client Info','User Agent'],
+  DRUG_ALLERGY_RULES:['Rule ID','Allergen Terms','Blocked Generic Terms','Reference','Status','Created By','Created At','Updated By','Updated At','Approved By','Approved At']
 };
 
 const ROLES = ['NURSE','ADMIN','MANAGER','SUPER_ADMIN'];
@@ -91,6 +92,9 @@ function route_(r) {
     case 'importStudents': return importStudents_(r.payload || {}, session);
     case 'importStaffMaster': return importStaffMaster_(r.payload || {}, session);
     case 'importItems': return importItems_(r.payload || {}, session);
+    case 'getDrugAllergyRules': return getDrugAllergyRules_(session);
+    case 'saveDrugAllergyRule': return saveDrugAllergyRule_(r.payload || {},session);
+    case 'publishDrugAllergyRule': return publishDrugAllergyRule_(r.payload || {},session);
     case 'getConfig': return getConfig_(session);
     case 'updateConfig': return updateConfig_(r.payload || {}, session);
     case 'getNotificationLog': return getNotificationLog_(r.payload || {}, session);
