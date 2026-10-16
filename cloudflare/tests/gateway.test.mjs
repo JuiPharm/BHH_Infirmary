@@ -95,3 +95,40 @@ test('UAT_READ_ONLY denies actions outside narrow allowlist',async()=>{
   const r=await handleRequest(request('getUsers'),e,null,dep);
   assert.equal(r.status,403);
 });
+
+test('UAT_RULE_SINGLE disallows direct rule mutations and every clinical stock mutation',async()=>{
+ const e={...env,GATEWAY_MODE:'UAT_RULE_SINGLE'};
+ const login=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
+ assert.equal(login.status,200);
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ for(const action of ['saveDrugAllergyRule','publishDrugAllergyRule','submitVisit','submitDispense','receiveStock','adjustStock','submitStockCount','submitSyntheticUatVisit','resetPassword','createUser','getUsers']){
+  const r=await handleRequest(request(action,{confirmed:true},cookie),e,null,{fetchImpl:async()=>{throw Error('Mutation should not contact upstream')}});
+  assert.equal(r.status,403,action);
+  assert.equal((await r.json()).errorCode,'PREVIEW_ACTION_DISABLED');
+ }
+});
+test('UAT_RULE_SINGLE refuses synthetic requests without explicit confirmation',async()=>{
+ const e={...env,GATEWAY_MODE:'UAT_RULE_SINGLE'};
+ const login=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ for(const action of ['submitSyntheticAllergyDraft','publishSyntheticAllergyRule']){
+  const r=await handleRequest(request(action,{},cookie),e,null,dep);
+  assert.equal(r.status,400,action);
+  assert.equal((await r.json()).errorCode,'UAT_EXPLICIT_CONFIRMATION_REQUIRED');
+ }
+});
+test('UAT_RULE_SINGLE cannot write without bound D1 claim gate',async()=>{
+ const e={...env,GATEWAY_MODE:'UAT_RULE_SINGLE'};
+ const login=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ const r=await handleRequest(request('submitSyntheticAllergyDraft',{confirmed:true},cookie),e,null,dep);
+ assert.equal(r.status,503);
+ assert.equal((await r.json()).errorCode,'UAT_DB_NOT_CONFIGURED');
+});
+test('UAT_READ_ONLY remains unable to access new synthetic rule write actions',async()=>{
+ const e={...env,GATEWAY_MODE:'UAT_READ_ONLY'};
+ for(const action of ['submitSyntheticAllergyDraft','publishSyntheticAllergyRule']){
+  const r=await handleRequest(request(action,{confirmed:true}),e,null,dep);
+  assert.equal(r.status,403,action);
+ }
+});
