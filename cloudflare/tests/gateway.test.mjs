@@ -77,6 +77,19 @@ test('UAT_READ_ONLY still requires a signed session for read actions',async()=>{
   const response=await handleRequest(request('getStock'),e,null,dep);
   assert.equal(response.status,401);
 });
+test('UAT_READ_ONLY permits reading approved allergy rules without enabling rule edits',async()=>{
+ const e={...env,GATEWAY_MODE:'UAT_READ_ONLY'};
+ const auth=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
+ assert.equal(auth.status,200);
+ const cookie=auth.headers.get('set-cookie').split(';')[0];
+ const read=await handleRequest(request('getDrugAllergyRules',{},cookie),e,null,dep);
+ assert.equal(read.status,200);
+ for(const action of ['saveDrugAllergyRule','publishDrugAllergyRule']){
+  const rejected=await handleRequest(request(action,{allergenTerms:'UAT-ONLY'},cookie),e,null,dep);
+  assert.equal(rejected.status,403,action);
+  assert.equal((await rejected.json()).errorCode,'PREVIEW_ACTION_DISABLED');
+ }
+});
 test('UAT_READ_ONLY denies actions outside narrow allowlist',async()=>{
   const e={...env,GATEWAY_MODE:'UAT_READ_ONLY'};
   const r=await handleRequest(request('getUsers'),e,null,dep);
