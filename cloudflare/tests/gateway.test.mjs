@@ -97,7 +97,7 @@ test('UAT_READ_ONLY denies actions outside narrow allowlist',async()=>{
 });
 
 test('UAT_RULE_SINGLE disallows direct rule mutations and every clinical stock mutation',async()=>{
- const e={...env,GATEWAY_MODE:'UAT_RULE_SINGLE'};
+ const e={...env,GATEWAY_MODE:'UAT_RULE_DRAFT_ONLY'};
  const login=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
  assert.equal(login.status,200);
  const cookie=login.headers.get('set-cookie').split(';')[0];
@@ -108,17 +108,18 @@ test('UAT_RULE_SINGLE disallows direct rule mutations and every clinical stock m
  }
 });
 test('UAT_RULE_SINGLE refuses synthetic requests without explicit confirmation',async()=>{
- const e={...env,GATEWAY_MODE:'UAT_RULE_SINGLE'};
+ const e={...env,GATEWAY_MODE:'UAT_RULE_DRAFT_ONLY'};
  const login=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
  const cookie=login.headers.get('set-cookie').split(';')[0];
- for(const action of ['submitSyntheticAllergyDraft','publishSyntheticAllergyRule']){
-  const r=await handleRequest(request(action,{},cookie),e,null,dep);
-  assert.equal(r.status,400,action);
-  assert.equal((await r.json()).errorCode,'UAT_EXPLICIT_CONFIRMATION_REQUIRED');
- }
+ const first=await handleRequest(request('submitSyntheticAllergyDraft',{},cookie),e,null,dep);
+ assert.equal(first.status,400);
+ assert.equal((await first.json()).errorCode,'UAT_EXPLICIT_CONFIRMATION_REQUIRED');
+ const publishBlocked=await handleRequest(request('publishSyntheticAllergyRule',{confirmed:true},cookie),e,null,dep);
+ assert.equal(publishBlocked.status,403);
+ assert.equal((await publishBlocked.json()).errorCode,'PREVIEW_ACTION_DISABLED');
 });
 test('UAT_RULE_SINGLE cannot write without bound D1 claim gate',async()=>{
- const e={...env,GATEWAY_MODE:'UAT_RULE_SINGLE'};
+ const e={...env,GATEWAY_MODE:'UAT_RULE_DRAFT_ONLY'};
  const login=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
  const cookie=login.headers.get('set-cookie').split(';')[0];
  const r=await handleRequest(request('submitSyntheticAllergyDraft',{confirmed:true},cookie),e,null,dep);
@@ -131,4 +132,22 @@ test('UAT_READ_ONLY remains unable to access new synthetic rule write actions',a
   const r=await handleRequest(request(action,{confirmed:true}),e,null,dep);
   assert.equal(r.status,403,action);
  }
+});
+test('UAT_RULE_PUBLISH_ONLY never permits fresh Draft or unrelated writes',async()=>{
+ const e={...env,GATEWAY_MODE:'UAT_RULE_PUBLISH_ONLY'};
+ const login=await handleRequest(request('login',{staffId:'00001',password:'fake'}),e,null,dep);
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ for(const action of ['submitSyntheticAllergyDraft','saveDrugAllergyRule','submitVisit','adjustStock']){
+  const r=await handleRequest(request(action,{confirmed:true},cookie),e,null,dep);
+  assert.equal(r.status,403,action);
+ }
+ const publish=await handleRequest(request('publishSyntheticAllergyRule',{},cookie),e,null,dep);
+ assert.equal(publish.status,400);
+ assert.equal((await publish.json()).errorCode,'UAT_EXPLICIT_CONFIRMATION_REQUIRED');
+});
+test('old combined UAT_RULE_SINGLE mode is rejected fail closed',async()=>{
+ const e={...env,GATEWAY_MODE:'UAT_RULE_SINGLE'};
+ const r=await handleRequest(request('submitSyntheticAllergyDraft',{confirmed:true}),e,null,dep);
+ assert.equal(r.status,403);
+ assert.equal((await r.json()).errorCode,'PREVIEW_POST_DISABLED');
 });
