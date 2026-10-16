@@ -30,7 +30,7 @@ export async function handleRequest(request,env,ctx,dependencies={}){
   if(!['UAT_AUTH_ONLY','UAT_READ_ONLY','UAT_RULE_DRAFT_ONLY','UAT_RULE_PUBLISH_ONLY','UAT_WRITE_SINGLE','LEGACY_GAS_SINGLE_WRITER'].includes(mode))
    return error('PREVIEW_POST_DISABLED',403);
   const authActions=['login','getSession','logout'];
-  const uatReadActions=['getStock','getStockLots','getSymptoms','getInventoryIntegrity','getDispenseHistory','getDashboardV2','getDrugAllergyRules'];
+  const uatReadActions=['getStock','getStockLots','getSymptoms','getInventoryIntegrity','getDispenseHistory','getDashboardV2','getDrugAllergyRules','runSyntheticAllergySafetyCheck'];
   if(mode==='UAT_AUTH_ONLY'&&!authActions.includes(action))
    return error('PREVIEW_ACTION_DISABLED',403);
   if(mode==='UAT_READ_ONLY'&&!authActions.includes(action)&&!uatReadActions.includes(action))
