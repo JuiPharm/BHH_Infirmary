@@ -43,8 +43,8 @@ export async function executeSyntheticUatVisit(gas,env,token){
    return failure('UAT_ALREADY_ATTEMPTED_NO_RETRY',409,{testId:UAT_TEST_ID});
  }catch{return failure('UAT_RESERVATION_UNAVAILABLE',503);}
  const setStatus=async (state,code,visitId=null,afterQty=null)=>{
-  try{await env.UAT_DB.prepare("UPDATE uat_one_shot_gate SET state=?,reason_code=?,visit_id=?,after_qty=?,completed_at=? WHERE test_id=? AND state='SUBMITTING'")
-   .bind(state,code,visitId,afterQty,new Date().toISOString(),UAT_TEST_ID).run();}catch{}
+  try{const result=await env.UAT_DB.prepare("UPDATE uat_one_shot_gate SET state=?,reason_code=?,visit_id=?,after_qty=?,completed_at=? WHERE test_id=? AND state='SUBMITTING'")
+   .bind(state,code,visitId,afterQty,new Date().toISOString(),UAT_TEST_ID).run();return result?.meta?.changes===1;}catch{return false;}
  };
  try{
   const result=await gas({action:'submitVisit',payload:FIXED_SYNTHETIC_VISIT,token},{timeoutMs:35000});
@@ -66,7 +66,8 @@ export async function executeSyntheticUatVisit(gas,env,token){
    await setStatus('NEEDS_REVIEW','VISIT_LEDGER_RECONCILIATION_MISMATCH',visitId,FIXTURE_BEFORE-1);
    return failure('UAT_VISIT_MISMATCH_NEEDS_REVIEW',503,{testId:UAT_TEST_ID,visitId});
   }
-  await setStatus('COMMITTED','RECONCILED',visitId,FIXTURE_BEFORE-1);
+  if(!await setStatus('COMMITTED','RECONCILED',visitId,FIXTURE_BEFORE-1))
+   return failure('UAT_LEDGER_NOT_CONFIRMED_NO_RETRY',503,{testId:UAT_TEST_ID,visitId});
   return {status:200,body:{success:true,data:{testId:UAT_TEST_ID,visitId,clientTransactionId:UAT_TRANSACTION_ID,stockLotId:UAT_LOT,beforeQty:FIXTURE_BEFORE,afterQty:FIXTURE_BEFORE-1,otherLotUnchanged:true,writer:'GAS_SHEETS',testOnly:true}}};
  }catch{
   await setStatus('NEEDS_REVIEW','NETWORK_OR_UNKNOWN_RESULT');
