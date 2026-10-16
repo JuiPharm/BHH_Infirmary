@@ -42,9 +42,9 @@ p{line-height:1.7}.small{color:#65718a;font-size:13px}.output{white-space:pre-wr
 <p class="small">ทดสอบการสร้าง Draft และ Publish กฎปลอมที่ไม่มีชื่อสาร/ยาใน Drug Master:
 <strong>BHHUATALLERGEN20261016 → BHHUATGENERIC20261016</strong> ไม่บันทึก Visit ไม่จ่ายยา ไม่แก้ Stock
 และไม่อนุญาตให้แก้ชื่อกฎ/ข้อมูลผู้รับบริการผ่านหน้า UAT นี้ · ขั้น Publish จะปลดล็อกหลังตรวจ D1 และ Audit Log</p>
-<div class="warning">แต่ละขั้นตอนส่งได้เพียงหนึ่งครั้ง หากแสดง UNKNOWN/NEEDS_REVIEW ห้ามกดซ้ำ ให้แจ้ง Error Code</div>
-<div><button id="btnRuleDraft" type="button">ขั้นที่ 1 · บันทึก Synthetic Draft</button>
-<button id="btnRulePublish" class="secondary" type="button" disabled title="เปิดหลังตรวจสอบ Draft ผ่าน">ขั้นที่ 2 · Publish (รอตรวจ Draft)</button></div>
+<div class="warning">Draft ID AR07c10f3cb053440fbc ผ่านการกระทบยอดแล้ว ขั้นนี้อนุญาตให้ Publish ชื่อสังเคราะห์เพียง 1 ครั้งเท่านั้น หากแสดง UNKNOWN/NEEDS_REVIEW ห้ามกดซ้ำ</div>
+<div><button id="btnRuleDraft" type="button" disabled title="Draft ผ่านแล้ว ห้ามส่งซ้ำ">ขั้นที่ 1 · Draft PASS (ล็อกแล้ว)</button>
+<button id="btnRulePublish" class="secondary" type="button">ขั้นที่ 2 · Approve/Publish Synthetic Rule</button></div>
 </div>
 <p class="small">รหัสผ่านถูกส่งโดย HTTPS ไปยัง Cloudflare Gateway และ GAS Sandbox เท่านั้น ไม่บันทึกไว้ในหน้าเว็บหรือ Local Storage โปรดอย่าส่งรหัสผ่านหรือ Session Cookie ในแชต</p>
 <p id="status" role="status" aria-live="polite" class="output">พร้อมทดสอบ · ยังไม่ได้เข้าสู่ระบบ</p>
@@ -65,7 +65,7 @@ document.getElementById('btnSession').addEventListener('click',async()=>{try{sta
 document.getElementById('btnLogout').addEventListener('click',async()=>{try{status.textContent=await call('logout');}catch(e){status.textContent='Logout: '+e.message;}});
 async function oneShotSyntheticRule(action) {
  const isDraft=action==='submitSyntheticAllergyDraft';
- const title=isDraft?'สร้าง Draft จำลองใน Google Sheets Sandbox 1 รายการ?':'อนุมัติและ Publish กฎจำลองที่สร้างไว้ใน Sandbox 1 รายการ?';
+ const title=isDraft?'สร้าง Draft จำลองใน Google Sheets Sandbox 1 รายการ?':'อนุมัติและ Publish กฎจำลอง AR07c10f3cb053440fbc ใน Sandbox 1 รายการ?';
  if(!window.confirm(title+' ไม่มีการบันทึก Visit หรือเปลี่ยน Stock และไม่สามารถส่งคำสั่งนี้ซ้ำอัตโนมัติได้'))return;
  const button=document.getElementById(isDraft?'btnRuleDraft':'btnRulePublish');
  button.disabled=true;status.textContent='กำลังทดสอบ '+(isDraft?'Synthetic Draft':'Synthetic Publish')+'... ห้ามกดซ้ำ';
