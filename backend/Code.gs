@@ -701,8 +701,10 @@ function submitVisit_(p,s) {
 
     // Write stock first, then records. Rollback is attempted on any error.
     if (items.length) {
-      lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
+      // Mark a possible stock mutation before the RPC: a timeout/error after the
+      // remote sheet applied values must still trigger snapshot rollback.
       stockWritten = true;
+      lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
     }
     header.getRange(header.getLastRow()+1,1,1,hrow.length).setValues([hrow]);
     if (drows.length) {
