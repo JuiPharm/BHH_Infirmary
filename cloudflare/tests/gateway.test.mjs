@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import {handleRequest} from '../worker/index.js';
 const ORIGIN='https://bhh-infirmary-p1-preview.example';
-const env={GAS_WEB_APP_URL:'https://script.google.com/macros/s/SYNTHETIC/exec',SESSION_KEY_B64:randomBytes(32).toString('base64')};
+const env={GAS_WEB_APP_URL:'https://script.google.com/macros/s/SYNTHETIC/exec',SESSION_KEY_B64:randomBytes(32).toString('base64'),GATEWAY_MODE:'LEGACY_GAS_SINGLE_WRITER'};
 const mockFetch=async (url,init)=>{
   const req=JSON.parse(init.body||'{}');
   if(init.method==='GET')return Response.json({success:true,apiVersion:'2.4.1'});
@@ -25,3 +25,27 @@ test('reject cross-origin requests',async()=>{const r=await handleRequest(reques
 test('reject missing custom anti-CSRF header',async()=>{const r=await handleRequest(new Request(ORIGIN+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'login',payload:{staffId:'x',password:'x'}})}),env,null,dep);assert.equal(r.status,403);});
 test('mutating transport failure returns unknown outcome',async()=>{const login=await handleRequest(request('login',{staffId:'00001',password:'fake'}),env,null,dep);const cookie=login.headers.get('set-cookie').split(';')[0];const r=await handleRequest(request('submitVisit',{clientTransactionId:'unique'},cookie),env,null,{fetchImpl:async()=>{throw Error('lost connection')}});assert.equal(r.status,503);assert.equal((await r.json()).errorCode,'OPERATION_STATUS_UNKNOWN');});
 test('malformed JSON does not execute upstream',async()=>{const r=await handleRequest(new Request(ORIGIN+'/api/action',{method:'POST',headers:{'X-BHH-Gateway':'1','Content-Type':'application/json'},body:'{' }),env,null,dep);assert.equal(r.status,400);});
+test('default gateway mode blocks all POSTs fail-closed',async()=>{
+  const noMode={...env,GATEWAY_MODE:undefined};
+  const r=await handleRequest(request('login',{staffId:'00001',password:'fake'}),noMode,null,dep);
+  assert.equal(r.status,403);assert.equal((await r.json()).errorCode,'PREVIEW_POST_DISABLED');
+});
+test('UAT auth mode blocks submitVisit before upstream call',async()=>{
+  const uatEnv={...env,GATEWAY_MODE:'UAT_AUTH_ONLY'};
+  const r=await handleRequest(request('submitVisit',{clientTransactionId:'synthetic'}),uatEnv,null,{
+    fetchImpl:async()=>{throw Error('Should never call GAS');}
+  });
+  assert.equal(r.status,403);assert.equal((await r.json()).errorCode,'PREVIEW_ACTION_DISABLED');
+});
+test('UAT auth mode allows login but sanitizes upstream session',async()=>{
+  const uatEnv={...env,GATEWAY_MODE:'UAT_AUTH_ONLY'};
+  const r=await handleRequest(request('login',{staffId:'00001',password:'fake'}),uatEnv,null,dep);
+  assert.equal(r.status,200);const data=await r.json();assert.equal(data.data.token,'gateway-session');
+});
+test('UAT auth mode blocks other mutations and reads',async()=>{
+  const uatEnv={...env,GATEWAY_MODE:'UAT_AUTH_ONLY'};
+  for(const action of ['getStock','getUsers','resetPassword','receiveStock','getDashboardData']){
+    const r=await handleRequest(request(action),uatEnv,null,dep);
+    assert.equal(r.status,403,action);
+  }
+});
