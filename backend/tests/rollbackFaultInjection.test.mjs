@@ -93,7 +93,7 @@ for (const phase of ['STOCK_LOT','DISPENSE_HEADER','DISPENSE_ITEMS','STOCK_TRANS
   const h=createHarness(phase);
   assert.throws(()=>h.ctx.submitVisit_(h.payload,{staffId:'UAT',role:'SUPER_ADMIN'}),
    /INJECTED_AFTER_REMOTE_WRITE_/);
-  assert.deepEqual(h.data,h.original,'Header, dispense details, stock lots, transaction ledger must be restored');
+  assert.equal(JSON.stringify(h.data),JSON.stringify(h.original),'Header, dispense details, stock lots, transaction ledger must be restored');
   assert.equal(h.item.QTY,10,'Aggregate item stock must be restored');
   assert.equal(h.state.lock,1);
   assert.equal(h.state.unlock,1);
