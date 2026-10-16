@@ -15,7 +15,7 @@ export function getSymptomCatalog(token: string) {
 }
 
 export function submitVisitP4(payload: unknown, token: string) {
-  return api<VisitSubmitP4Result>('submitVisit', payload, token, undefined, 30000, true);
+  return api<VisitSubmitP4Result>('submitVisit', payload, token, undefined, 45000, true);
 }
 
 export function getDashboardV2(
