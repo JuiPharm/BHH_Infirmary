@@ -24,9 +24,11 @@ const HEADERS = {
 
 const ROLES = ['NURSE','ADMIN','MANAGER','SUPER_ADMIN'];
 const API_VERSION = '2.4.1';
+// Gate 0 deployment evidence. Version 2.4.1 alone cannot identify a GAS source revision.
+const GAS_SOURCE_BUILD_ID = 'BHHINF-P1-SAFETY-20261016-R2';
 
 function doGet(e) {
-  return out_({success:true,service:'School Nurse System API',apiVersion:API_VERSION,timestamp:now_()});
+  return out_({success:true,service:'School Nurse System API',apiVersion:API_VERSION,buildId:GAS_SOURCE_BUILD_ID,timestamp:now_()});
 }
 
 function doPost(e) {
