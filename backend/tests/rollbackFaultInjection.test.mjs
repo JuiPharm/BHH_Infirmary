@@ -78,7 +78,7 @@ function createHarness(failurePhase) {
  };
  const sheets=Object.fromEntries(Object.keys(data).map(n=>[n,getSheet(n)]));
  ctx.getSheet_=name=>sheets[name];
- ctx.syncItemQty_=lot=>{item.QTY=lot.slice(1).reduce((n,row)=>n+Number(row[6]||0),0);};
+ ctx.syncItemQty_=lot=>{item.QTY=lot.slice(1).reduce((n,row)=>n+Number(row[6]||0),0);if(state.failOnce&&failurePhase==='ITEM_MASTER_QTY'){state.failOnce=false;throw Error('INJECTED_AFTER_REMOTE_WRITE_ITEM_MASTER_QTY');}};
  ctx.audit_=()=>{state.audits++;};
  ctx.auditSystem_=()=>{state.audits++;};
  ctx.triggerReferralNotificationForVisit_=()=>{state.emails++;};
@@ -88,7 +88,7 @@ function createHarness(failurePhase) {
   drugAllergy:{status:'NKDA'},items:[{itemCode:'MOCK-ITEM-003',qty:1}]};
  return {ctx,data,original,item,state,payload};
 }
-for (const phase of ['STOCK_LOT','DISPENSE_HEADER','DISPENSE_ITEMS','STOCK_TRANSACTION']){
+for (const phase of ['STOCK_LOT','DISPENSE_HEADER','DISPENSE_ITEMS','STOCK_TRANSACTION','ITEM_MASTER_QTY']){
  test('submitVisit rolls back all tables when remote '+phase+' write applies then raises',()=>{
   const h=createHarness(phase);
   assert.throws(()=>h.ctx.submitVisit_(h.payload,{staffId:'UAT',role:'SUPER_ADMIN'}),
