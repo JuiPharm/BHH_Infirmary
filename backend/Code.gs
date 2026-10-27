@@ -546,7 +546,7 @@ function submitVisit_(p,s) {
       const qty = Number(raw.qty);
       if (!Number.isFinite(qty) || qty <= 0 || qty > 100000 ||
           (!recordOnly && !Number.isInteger(qty)) ||
-          (recordOnly && Math.round(qty * 1000) !== qty * 1000)) {
+          (recordOnly && Math.abs(Math.round(qty * 1000) - qty * 1000) > 1e-7)) {
         throw new Error('INVALID_QTY');
       }
 
@@ -765,7 +765,10 @@ function submitVisit_(p,s) {
       return {itemCode:code,dispensedQty:requestedByItem[code]};
     });
 
-    shouldNotify = disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER';
+    // Never send a new urgent referral alert for a historical/backdated Visit.
+    // Historical care is documented but not presented as a current emergency.
+    shouldNotify = visitDate === Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd') &&
+      (disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER');
     completedResult = {success:true,data:{
       visitId:visitId,
       items:resultItems,
@@ -775,7 +778,8 @@ function submitVisit_(p,s) {
       recipientType:recipient.recipientType,
       derivedVisitCategory:symptomSelection.derivedCategory,
       clinicalAlertLevel:symptomSelection.clinicalAlertLevel,
-      notification:null
+      notification:!shouldNotify && (disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER')
+        ? {status:'NOT_REQUIRED',type:'HISTORICAL_VISIT'} : null
     }};
   } catch (err) {
     // Google Sheets has no native multi-sheet transaction. If any write after stock
