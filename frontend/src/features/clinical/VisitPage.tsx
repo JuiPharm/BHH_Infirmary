@@ -5,7 +5,7 @@ import { StudentSafetyCard } from '../../components/StudentSafetyCard';
 import { StudentSafetyEditor } from '../../components/StudentSafetyEditor';
 import { useAuth } from '../../context/AuthContext';
 import { normalizeItemType } from '../../domain/stock';
-import { hasVisitClinicalContent } from '../../domain/visit';
+import { hasVisitClinicalContent, isValidVisitDate, todayInBangkok, validRecordOnlyQuantity } from '../../domain/visit';
 import {
   CartItem,
   DrugAllergyStatus,
@@ -122,6 +122,11 @@ export const VisitPage: React.FC = () => {
   const [spo2, setSpo2] = useState('');
   const [weight, setWeight] = useState('');
 
+  const [visitDate, setVisitDate] = useState(todayInBangkok);
+  const [recordOnlyMode, setRecordOnlyMode] = useState(false);
+  const [usageName, setUsageName] = useState('');
+  const [usageQty, setUsageQty] = useState('1');
+  const [usageUnit, setUsageUnit] = useState('ชิ้น');
   const [items, setItems] = useState<Item[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [itemSearch, setItemSearch] = useState('');
@@ -366,47 +371,72 @@ export const VisitPage: React.FC = () => {
   };
 
   const addToCart = (item: Item) => {
+    const recordOnly = recordOnlyMode;
     const currentStock = Number(item.QTY) || 0;
-    if (currentStock <= 0) {
+    if (!recordOnly && currentStock <= 0) {
       Swal.fire('สต็อกหมด', 'รายการนี้ไม่มี usable stock สำหรับจ่าย', 'warning');
       return;
     }
-
-    const existing = cart.find((c) => c.itemCode === item['Item Code']);
+    const itemCode = item['Item Code'];
+    const rowKey = (recordOnly ? 'RECORD:' : 'STOCK:') + itemCode;
+    const existing = cart.find((c) => c.rowKey === rowKey);
     if (existing) {
-      if (existing.qty >= currentStock) {
+      if (!recordOnly && existing.qty >= currentStock) {
         Swal.fire('เกินสต็อก', `คงเหลือสูงสุด ${currentStock} ${item.Unit}`, 'warning');
         return;
       }
-      setCart(cart.map((c) => c.itemCode === item['Item Code'] ? { ...c, qty: c.qty + 1 } : c));
+      setCart(cart.map((c) => c.rowKey === rowKey ? { ...c, qty: c.qty + 1 } : c));
       return;
     }
-
-    setCart([
-      ...cart,
-      {
-        itemCode: item['Item Code'],
-        genericName: item['Generic Name'],
-        tradeName: item['Trade Name'],
-        itemType: item['Item Type'],
-        unit: item.Unit,
-        currentStock,
-        qty: 1
-      }
-    ]);
+    setCart([...cart, {
+      rowKey, recordOnly, itemCode,
+      genericName: item['Generic Name'],
+      tradeName: item['Trade Name'],
+      itemType: item['Item Type'],
+      unit: item.Unit || 'ชิ้น',
+      currentStock, qty: 1
+    }]);
   };
 
-  const changeCartQty = (itemCode: string, delta: number) => {
-    setCart(
-      cart
-        .map((c) => {
-          if (c.itemCode !== itemCode) return c;
-          const qty = c.qty + delta;
-          if (qty > c.currentStock) return c;
-          return qty <= 0 ? null : { ...c, qty };
-        })
-        .filter(Boolean) as CartItem[]
-    );
+  const addFreeTextUsage = () => {
+    const name = usageName.trim();
+    const unit = usageUnit.trim();
+    const qty = Number(usageQty);
+    if (!name || name.length > 200 || !unit || unit.length > 40 || !validRecordOnlyQuantity(qty)) {
+      Swal.fire('รายการบันทึกการใช้ไม่ครบ', 'ระบุชื่อ จำนวนที่มากกว่า 0 (ทศนิยมไม่เกิน 3 ตำแหน่ง) และหน่วย', 'warning');
+      return;
+    }
+    setCart((current) => [...current, {
+      rowKey: 'FREE:' + Date.now() + ':' + Math.random().toString(36).slice(2, 9),
+      recordOnly: true,
+      itemCode: '',
+      genericName: name,
+      tradeName: '',
+      itemType: 'MEDICAL_SUPPLY',
+      unit, currentStock: 0, qty
+    }]);
+    setUsageName('');
+    setUsageQty('1');
+  };
+
+  const changeCartQty = (rowKey: string, delta: number) => {
+    setCart((current) => current
+      .map((c) => {
+        if (c.rowKey !== rowKey) return c;
+        const qty = c.qty + delta;
+        if (!c.recordOnly && qty > c.currentStock) return c;
+        return qty <= 0 ? null : { ...c, qty };
+      })
+      .filter(Boolean) as CartItem[]);
+  };
+
+  const updateRecordLine = (rowKey: string, change: Partial<Pick<CartItem, 'qty' | 'unit'>>) => {
+    setCart((current) => current.map((c) => c.rowKey === rowKey && c.recordOnly
+      ? { ...c, ...change } : c));
+  };
+
+  const removeCartLine = (rowKey: string) => {
+    setCart((current) => current.filter((c) => c.rowKey !== rowKey));
   };
 
   const buildVitals = (): VisitVitals => ({
@@ -420,6 +450,11 @@ export const VisitPage: React.FC = () => {
   });
 
   const resetForm = () => {
+    setVisitDate(todayInBangkok());
+    setRecordOnlyMode(false);
+    setUsageName('');
+    setUsageQty('1');
+    setUsageUnit('ชิ้น');
     clearRecipient();
     setSelectedSymptomIds([]);
     setSymptomSearch('');
@@ -443,13 +478,17 @@ export const VisitPage: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (!isValidVisitDate(visitDate)) {
+      Swal.fire('วันที่รับบริการไม่ถูกต้อง', 'กรุณาเลือกวันที่จริงที่ไม่เกินวันนี้', 'warning');
+      return;
+    }
     if (!selectedRecipient || !session?.token) {
       Swal.fire('ยังไม่ได้เลือกผู้มารับบริการ', 'กรุณาค้นหาจาก Master หรือใช้ Free Text Visit', 'warning');
       return;
     }
 
     const vitals = buildVitals();
-    if (!hasVisitClinicalContent({
+    if (!cart.length && !hasVisitClinicalContent({
       symptoms: selectedSymptomIds,
       otherSymptom,
       note,
@@ -512,7 +551,12 @@ export const VisitPage: React.FC = () => {
     }
 
     for (const c of cart) {
-      if (c.qty > c.currentStock) {
+      if (c.recordOnly) {
+        if (!validRecordOnlyQuantity(c.qty) || !c.unit.trim() || c.unit.length > 40) {
+          Swal.fire('ข้อมูลการใช้ไม่ถูกต้อง', 'กรุณาตรวจสอบจำนวนและหน่วยของรายการบันทึกการใช้', 'warning');
+          return;
+        }
+      } else if (!Number.isInteger(c.qty) || c.qty <= 0 || c.qty > c.currentStock) {
         Swal.fire('สต็อกไม่เพียงพอ', `${c.genericName || c.itemCode} คงเหลือ ${c.currentStock}`, 'error');
         return;
       }
@@ -533,7 +577,8 @@ export const VisitPage: React.FC = () => {
         `Visit Category: ${derivedCategory || '-'}`,
         `Clinical Alert: ${clinicalAlert}`,
         `Disposition: ${dispositionLabel}`,
-        `ยา/เวชภัณฑ์: ${cart.length ? cart.length + ' รายการ' : 'ไม่มีการจ่าย'}`
+        `วันที่รับบริการ: ${visitDate}`,
+        `ตัด Stock: ${cart.filter((x) => !x.recordOnly).length} รายการ · บันทึกอย่างเดียว: ${cart.filter((x) => x.recordOnly).length} รายการ`
       ].join('\n'),
       icon: disposition === 'EMERGENCY_TRANSFER' ? 'warning' : 'question',
       showCancelButton: true,
@@ -556,6 +601,7 @@ export const VisitPage: React.FC = () => {
 
     try {
       const payload = {
+        visitDate,
         recipient: selectedRecipient,
         studentId:
           selectedRecipient.recipientSource === 'STUDENT_MASTER'
@@ -587,7 +633,8 @@ export const VisitPage: React.FC = () => {
               ? `${c.tradeName} (${c.genericName})`
               : c.tradeName || c.genericName || c.itemCode,
           itemType: c.itemType,
-          unit: c.unit
+          unit: c.unit,
+          recordOnly: c.recordOnly === true
         })),
       };
       // Reuse the idempotency key on an unchanged-form network retry.
@@ -685,6 +732,22 @@ export const VisitPage: React.FC = () => {
           ค้นหา Student ID / Staff ID / ชื่อ ระบบจะระบุประเภทผู้รับบริการจาก Master ให้อัตโนมัติ
         </p>
       </div>
+
+      <section className="card" style={{ marginBottom: 16, padding: '14px 20px' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div className="form-group" style={{ marginBottom: 0, flex: '1 1 220px', maxWidth: 320 }}>
+            <label className="form-label" htmlFor="visit-date">วันที่รับบริการ (ย้อนหลังได้)</label>
+            <input id="visit-date" className="form-control" type="date"
+              value={visitDate} max={todayInBangkok()}
+              onChange={(e) => setVisitDate(e.target.value)} required />
+          </div>
+          <button className="btn btn-outline btn-sm" type="button"
+            onClick={() => setVisitDate(todayInBangkok())}>วันนี้</button>
+          <span style={{ color: '#64748b', fontSize: '.83rem' }}>
+            ระบบบันทึกวันและเวลาที่ทำรายการจริงแยกไว้สำหรับ Audit
+          </span>
+        </div>
+      </section>
 
       <div className="grid-2">
         <div>
@@ -1189,32 +1252,36 @@ export const VisitPage: React.FC = () => {
         <div>
           <section className="card">
             <div className="card-header">
-              <span className="card-title">4. ยา/เวชภัณฑ์ (Optional)</span>
+              <span className="card-title">4. ยา / เวชภัณฑ์ / บันทึกการใช้ (Optional)</span>
               <button className="btn btn-outline btn-sm" onClick={loadItems} disabled={loadingItems}>
                 {loadingItems ? 'กำลังโหลด...' : 'รีเฟรช'}
               </button>
             </div>
+            <div className="tabs" style={{ marginBottom: 10 }}>
+              <button type="button" className={`tab-item ${!recordOnlyMode ? 'active' : ''}`}
+                onClick={() => setRecordOnlyMode(false)}>ตัด Stock (FEFO)</button>
+              <button type="button" className={`tab-item ${recordOnlyMode ? 'active' : ''}`}
+                onClick={() => setRecordOnlyMode(true)}>บันทึกการใช้ · ไม่ตัด Stock</button>
+            </div>
             <p style={{ color: '#64748b', fontSize: '.85rem' }}>
-              Visit บันทึกได้โดยไม่ต้องจ่ายยา/เวชภัณฑ์ และ backend จะจ่ายเฉพาะ usable ACTIVE lot ตาม FEFO
+              {recordOnlyMode
+                ? 'บันทึกชื่อ จำนวน และหน่วย โดยไม่เปลี่ยนยอดคลังหรือสร้าง Stock Transaction · ยาจาก Item Master ยังต้องผ่านการตรวจประวัติแพ้ยา'
+                : 'จ่ายจาก ACTIVE lot ที่ใช้งานได้ตาม FEFO และตัด Stock จริง'}
             </p>
             <div className="tabs" style={{ marginBottom: 10 }}>
               {(['ALL','DRUG','MEDICAL_SUPPLY'] as const).map((x) => (
-                <button
-                  key={x}
+                <button type="button" key={x}
                   className={`tab-item ${itemTypeFilter === x ? 'active' : ''}`}
-                  onClick={() => setItemTypeFilter(x)}
-                >
+                  onClick={() => setItemTypeFilter(x)}>
                   {x === 'ALL' ? 'ทั้งหมด' : x === 'DRUG' ? 'ยา' : 'เวชภัณฑ์'}
                 </button>
               ))}
             </div>
-            <input
-              className="form-control"
-              placeholder="ค้นหารายการ..."
-              value={itemSearch}
-              onChange={(e) => setItemSearch(e.target.value)}
-            />
-            <div style={{ maxHeight: 260, overflowY: 'auto', marginTop: 10, border: '1px solid #e2e8f0', borderRadius: 8 }}>
+            <input className="form-control"
+              placeholder="ค้นหารายการจาก Item Master..."
+              value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} />
+            <div style={{ maxHeight: 260, overflowY: 'auto', marginTop: 10,
+              border: '1px solid #e2e8f0', borderRadius: 8 }}>
               {filteredItems.map((item) => (
                 <div key={item['Item Code']} className="cart-item">
                   <div>
@@ -1223,35 +1290,89 @@ export const VisitPage: React.FC = () => {
                       {item['Generic Name']} · คงเหลือ {item.QTY} {item.Unit}
                     </div>
                   </div>
-                  <button
-                    className="btn btn-outline btn-sm"
+                  <button type="button" className="btn btn-outline btn-sm"
                     onClick={() => addToCart(item)}
-                    disabled={Number(item.QTY) <= 0}
-                  >
-                    + เพิ่ม
+                    disabled={!recordOnlyMode && Number(item.QTY) <= 0}>
+                    {recordOnlyMode ? '+ บันทึกการใช้' : '+ เพิ่ม'}
                   </button>
                 </div>
               ))}
             </div>
 
+            {recordOnlyMode && (
+              <div style={{ padding: 12, marginTop: 12, background: '#f0f7ff',
+                border: '1px solid #bfdbfe', borderRadius: 10 }}>
+                <strong>หรือเพิ่มเวชภัณฑ์ Free Text (ไม่อยู่ใน Item Master)</strong>
+                <p style={{ fontSize: '.8rem', color: '#64748b', margin: '4px 0 10px' }}>
+                  รายการ Free Text ใช้สำหรับเวชภัณฑ์เท่านั้น ยาต้องเลือกจาก Item Master
+                </p>
+                <div style={{ display: 'grid', gap: 8,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label className="form-label" htmlFor="usage-name">ชื่อรายการ</label>
+                    <input id="usage-name" className="form-control" maxLength={200}
+                      placeholder="เช่น ผ้าก๊อซสำหรับทำแผล"
+                      value={usageName} onChange={(e) => setUsageName(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label" htmlFor="usage-qty">จำนวน</label>
+                    <input id="usage-qty" className="form-control" type="number"
+                      min="0.001" max="100000" step="0.001"
+                      value={usageQty} onChange={(e) => setUsageQty(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label" htmlFor="usage-unit">หน่วย</label>
+                    <input id="usage-unit" className="form-control"
+                      maxLength={40} placeholder="ชิ้น / แผ่น / mL"
+                      value={usageUnit} onChange={(e) => setUsageUnit(e.target.value)} />
+                  </div>
+                  <button type="button" className="btn btn-primary btn-sm"
+                    style={{ alignSelf: 'end' }} onClick={addFreeTextUsage}>
+                    + เพิ่มรายการ
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div style={{ marginTop: 14 }}>
               {cart.length === 0 ? (
-                <div style={{ color: '#94a3b8', textAlign: 'center', padding: 12 }}>ไม่มีรายการจ่าย</div>
-              ) : (
-                cart.map((c) => (
-                  <div key={c.itemCode} className="cart-item">
-                    <div>
-                      <strong>{c.tradeName || c.genericName}</strong>
-                      <div style={{ color: '#64748b', fontSize: '.8rem' }}>{c.itemCode}</div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <button className="btn btn-outline btn-sm" onClick={() => changeCartQty(c.itemCode, -1)}>-</button>
-                      <strong>{c.qty}</strong>
-                      <button className="btn btn-outline btn-sm" onClick={() => changeCartQty(c.itemCode, 1)}>+</button>
+                <div style={{ color: '#94a3b8', textAlign: 'center', padding: 12 }}>ยังไม่มีรายการ</div>
+              ) : cart.map((c) => (
+                <div key={c.rowKey || c.itemCode} className="cart-item"
+                  style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+                  <div style={{ flex: '1 1 150px' }}>
+                    <strong>{c.tradeName || c.genericName || c.itemCode}</strong>
+                    <div style={{ color: '#64748b', fontSize: '.8rem' }}>
+                      {c.itemCode || 'Free Text'} · {c.recordOnly ? 'ไม่ตัด Stock' : 'ตัด Stock (FEFO)'}
                     </div>
                   </div>
-                ))
-              )}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {c.recordOnly ? (
+                      <>
+                        <input className="form-control" style={{ width: 94 }}
+                          aria-label={`จำนวน ${c.genericName || c.itemCode}`}
+                          type="number" min="0.001" max="100000" step="0.001"
+                          value={Number.isFinite(c.qty) ? c.qty : ''}
+                          onChange={(e) => updateRecordLine(c.rowKey || '', { qty: Number(e.target.value) })} />
+                        <input className="form-control" style={{ width: 90 }}
+                          aria-label={`หน่วย ${c.genericName || c.itemCode}`}
+                          value={c.unit} maxLength={40}
+                          onChange={(e) => updateRecordLine(c.rowKey || '', { unit: e.target.value })} />
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="btn btn-outline btn-sm"
+                          onClick={() => changeCartQty(c.rowKey || '', -1)}>-</button>
+                        <strong>{c.qty} {c.unit}</strong>
+                        <button type="button" className="btn btn-outline btn-sm"
+                          onClick={() => changeCartQty(c.rowKey || '', 1)}>+</button>
+                      </>
+                    )}
+                    <button type="button" className="btn btn-outline btn-sm"
+                      onClick={() => removeCartLine(c.rowKey || '')} aria-label="ลบรายการ">×</button>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
 
