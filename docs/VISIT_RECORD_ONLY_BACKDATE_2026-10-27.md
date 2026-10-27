@@ -39,3 +39,7 @@
 5. Mixed-mode Visit deducts only DEDUCT lines; all usage lines appear in Visit history.
 6. Historical Referral/Emergency Visit does not send an urgent message as if the event occurred now.
 7. Schema append never truncates or rearranges old data; failed or duplicate write cannot create a second Visit.
+
+## Version compatibility hard stop
+- GAS `API_VERSION` and frontend `REQUIRED_API_VERSION` must **both be 2.5.0**. Never deploy this UI against a 2.4.1 GAS writer: that older writer may **deduct inventory** from an Item Master line even if the browser sends `recordOnly:true`.
+- Deploy only to a synthetic isolated environment after API-version gate verification. Do not point the current Production browser at an incompatible writer, or change its version string without deploying the matching code.
