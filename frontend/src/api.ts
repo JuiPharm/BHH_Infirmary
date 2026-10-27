@@ -4,7 +4,7 @@ export const DEFAULT_GAS_URL =
   import.meta.env.VITE_GAS_URL ||
   'https://script.google.com/macros/s/AKfycbwC7zeux5tDqr_C-2AwtllHIFDXkXyvVQ0J7BoI-3u55xQ6vSslP5VxwZCxFKjZmB_h/exec';
 
-export const REQUIRED_API_VERSION = '2.4.1';
+export const REQUIRED_API_VERSION = '2.5.0';
 
 export interface BackendHealth {
   success: boolean;
@@ -41,7 +41,10 @@ const ERROR_MESSAGES_TH: Record<string, string> = {
   ACCESS_DENIED: 'คุณไม่มีสิทธิ์ในการดำเนินการนี้',
   STUDENT_NOT_FOUND: 'ไม่พบข้อมูลนักเรียนในระบบ',
   ITEM_NOT_FOUND: 'ไม่พบรายการยาหรือเวชภัณฑ์',
-  INVALID_QTY: 'จำนวนต้องเป็นจำนวนเต็มที่มากกว่า 0',
+  INVALID_QTY: 'จำนวนไม่ถูกต้อง: การจ่าย Stock ต้องเป็นจำนวนเต็ม ส่วนการบันทึกการใช้รองรับทศนิยม 3 ตำแหน่ง',
+  INVALID_VISIT_DATE: 'วันที่รับบริการไม่ถูกต้องหรือเป็นวันที่ในอนาคต',
+  INVALID_USAGE_ENTRY: 'กรุณาระบุชื่อ/หน่วยของรายการบันทึกการใช้',
+  RECORD_ONLY_SUPPLY_REQUIRED: 'Free Text รองรับเฉพาะเวชภัณฑ์ หากเป็นยาให้เลือกจาก Item Master',
   INSUFFICIENT_STOCK: 'จำนวนสต็อกคงเหลือไม่เพียงพอ',
   DUPLICATE_TRANSACTION: 'รายการเบิกนี้ถูกประมวลผลไปแล้ว (Duplicate)',
   STOCK_CHANGED: 'สต็อกมีการเปลี่ยนแปลง กรุณาตรวจสอบอีกครั้ง',
