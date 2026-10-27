@@ -192,3 +192,11 @@ test('free text beginning with a spreadsheet formula is stored as safe text',() 
   assert.equal(line['Item Name'],"'=1+1");
   assert.equal(line.Unit,"'=CMD()");
 });
+
+test('new frontend uses a versioned mutation action absent from the 2.4.1 backend',() => {
+  const newClient = readFileSync(resolve(import.meta.dirname,
+    '../../frontend/src/features/clinical/api.ts'),'utf8');
+  assert.match(source,/case 'submitVisitV250': return submitVisit_\(/);
+  assert.match(newClient,/api<VisitSubmitP4Result>\('submitVisitV250'/);
+  assert.doesNotMatch(newClient,/api<VisitSubmitP4Result>\('submitVisit',/);
+});
