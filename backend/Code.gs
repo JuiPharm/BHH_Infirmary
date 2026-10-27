@@ -64,6 +64,7 @@ function route_(r) {
     case 'getItems': return getItems_(r.payload || {});
     case 'submitDispense': return submitVisit_(r.payload || {}, session);
     case 'submitVisit': return submitVisit_(r.payload || {}, session);
+    case 'submitVisitV250': return submitVisit_(r.payload || {}, session);
     case 'getDispenseHistory': return getDispenseHistory_(r.payload || {}, session);
     case 'getStock': return getStock_(r.payload || {}, session);
     case 'getStockLots': return getStockLots_(r.payload || {}, session);
