@@ -445,7 +445,7 @@ function getItems_(p) {
 // Validate a calendar-only visit date without converting browser-local dates to UTC.
  // Created At and Completed At always retain the actual audit timestamp.
 function resolveVisitDateForEntry_(rawDate) {
-  const today = Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd');
+  const today = Utilities.formatDate(new Date(),'Asia/Bangkok','yyyy-MM-dd');
   if (rawDate === undefined || rawDate === null || String(rawDate).trim() === '') return today;
   const date = String(rawDate).trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
@@ -695,8 +695,8 @@ function submitVisit_(p,s) {
       'Student ID':studentId,
       'Visit Date':visitDate,
       // Avoid fabricating a historical time for backdated entries.
-      'Visit Time':visitDate === Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd')
-        ? Utilities.formatDate(new Date(),getTimeZone_(),'HH:mm:ss') : '',
+      'Visit Time':visitDate === Utilities.formatDate(new Date(),'Asia/Bangkok','yyyy-MM-dd')
+        ? Utilities.formatDate(new Date(),'Asia/Bangkok','HH:mm:ss') : '',
       'Symptoms':JSON.stringify(symptoms),
       'Other Symptom':String(p.otherSymptom || ''),
       'Note':String(p.note || ''),
@@ -767,7 +767,7 @@ function submitVisit_(p,s) {
 
     // Never send a new urgent referral alert for a historical/backdated Visit.
     // Historical care is documented but not presented as a current emergency.
-    shouldNotify = visitDate === Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd') &&
+    shouldNotify = visitDate === Utilities.formatDate(new Date(),'Asia/Bangkok','yyyy-MM-dd') &&
       (disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER');
     completedResult = {success:true,data:{
       visitId:visitId,
