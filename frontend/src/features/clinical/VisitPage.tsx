@@ -653,7 +653,9 @@ export const VisitPage: React.FC = () => {
       let notice = '';
       let icon: 'success' | 'warning' = 'success';
 
-      if (notification?.status === 'SENT') {
+      if (notification?.type === 'HISTORICAL_VISIT') {
+        notice = 'ย้อนหลัง: บันทึกประวัติสำเร็จ ไม่ส่งอีเมลแจ้งเหตุใหม่สำหรับ Visit ที่ผ่านมา';
+      } else if (notification?.status === 'SENT') {
         notice = 'Notification: ส่ง Email สำเร็จ';
       } else if (notification?.status === 'FAILED') {
         icon = 'warning';
