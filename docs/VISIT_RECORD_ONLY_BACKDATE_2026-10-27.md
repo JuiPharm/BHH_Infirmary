@@ -43,3 +43,6 @@
 ## Version compatibility hard stop
 - GAS `API_VERSION` and frontend `REQUIRED_API_VERSION` must **both be 2.5.0**. Never deploy this UI against a 2.4.1 GAS writer: that older writer may **deduct inventory** from an Item Master line even if the browser sends `recordOnly:true`.
 - Deploy only to a synthetic isolated environment after API-version gate verification. Do not point the current Production browser at an incompatible writer, or change its version string without deploying the matching code.
+
+- In addition to the health version gate, the new frontend posts to **`submitVisitV250`**. Old GAS 2.4.1 does not recognize this action and must reject the request rather than misinterpreting `recordOnly:true` as an inventory dispense.
+- The 2.5.0 server keeps legacy `submitVisit` for old clients; the new Visit UI uses only `submitVisitV250`. When later integrating Cloudflare Gateway PR #10, explicitly authorize the versioned action only after its own gated UAT.
