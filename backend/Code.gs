@@ -13,7 +13,7 @@ const HEADERS = {
   ITEM_MASTER:['Item Code','Item Type','Generic Name','Trade Name','QTY','Unit','Minimum Stock','Maximum Stock','Unit Cost','Active/Inactive'],
   STOCK_LOT:['Stock Lot ID','Item Code','Lot Number','Expiry Date','Received Date','Received Qty','Current Qty','Unit Cost','Supplier','Status'],
   DISPENSE_HEADER:['Visit ID','Student ID','Visit Date','Visit Time','Symptoms','Other Symptom','Note','Staff ID','Status','Created At','Client Transaction ID','Temperature','BP Systolic','BP Diastolic','Pulse','Respiratory Rate','SpO2','Weight','Assessment','Interventions','Disposition','Outcome Note','Completed At','Recipient ID','Recipient Name','Recipient Type','Recipient Department/Class','Recipient Source','Recipient Contact','Drug Allergy Status','Drug Allergy Drug/Group','Drug Allergy Reaction','Drug Allergy Note','Symptom IDs','Symptom Categories','Derived Visit Category','Clinical Alert Level'],
-  DISPENSE_ITEMS:['Dispense Item ID','Visit ID','Item Code','Item Type','Item Name','Qty','Unit','Created At'],
+  DISPENSE_ITEMS:['Dispense Item ID','Visit ID','Item Code','Item Type','Item Name','Qty','Unit','Created At','Stock Effect'],
   STOCK_TRANSACTION:['Transaction ID','Transaction Type','Reference ID','Item Code','Stock Lot ID','Qty','Before Qty','After Qty','Unit Cost','Reason','Staff ID','Timestamp'],
   STOCK_COUNT:['Count ID','Count Line ID','Count Date','Stock Lot ID','Item Code','System Qty','Counted Qty','Variance','Reason','Staff ID','Created At'],
   SYMPTOMS:['Symptom ID','Symptom','Category','Active','Sort Order','Clinical Alert Level','Updated At','Updated By'],
@@ -442,6 +442,29 @@ function getItems_(p) {
    DISPENSING
 ========================= */
 
+// Validate a calendar-only visit date without converting browser-local dates to UTC.
+ // Created At and Completed At always retain the actual audit timestamp.
+function resolveVisitDateForEntry_(rawDate) {
+  const today = Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd');
+  if (rawDate === undefined || rawDate === null || String(rawDate).trim() === '') return today;
+  const date = String(rawDate).trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) throw new Error('INVALID_VISIT_DATE');
+  const year = Number(m[1]), month = Number(m[2]), day = Number(m[3]);
+  if (year < 2000 || year > 2100) throw new Error('INVALID_VISIT_DATE');
+  const d = new Date(Date.UTC(year,month-1,day));
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month-1 || d.getUTCDate() !== day || date > today) {
+    throw new Error('INVALID_VISIT_DATE');
+  }
+  return date;
+}
+
+function safeUsageLogText_(value,maxLength) {
+  const input = limitedText_(value,maxLength).trim();
+  // Record-only lines can originate from free text; never persist Sheets formulas.
+  return /^[=+@-]/.test(input) ? "'" + input : input;
+}
+
 function submitDispense_(p,s) {
   return submitVisit_(p,s);
 }
@@ -451,6 +474,7 @@ function submitVisit_(p,s) {
 
   const recipient = resolveRecipientForVisit_(p);
   const studentId = recipient.recipientSource === 'STUDENT_MASTER' ? recipient.recipientId : '';
+  const visitDate = resolveVisitDateForEntry_(p.visitDate);
   const clientTx = String(p.clientTransactionId || '').trim();
   const items = Array.isArray(p.items) ? p.items : [];
   const symptomSelection = resolveVisitSymptoms_(p);
@@ -471,7 +495,7 @@ function submitVisit_(p,s) {
   });
 
   if (!clientTx) throw new Error('INVALID_INPUT');
-  if (!symptoms.length && !String(p.otherSymptom || '').trim() && !String(p.note || '').trim() && !assessment && !interventions.length && !hasVitals) {
+  if (!symptoms.length && !String(p.otherSymptom || '').trim() && !String(p.note || '').trim() && !assessment && !interventions.length && !hasVitals && !items.length) {
     throw new Error('VISIT_CLINICAL_DATA_REQUIRED');
   }
   if (!disposition) throw new Error('DISPOSITION_REQUIRED');
@@ -496,6 +520,7 @@ function submitVisit_(p,s) {
     const header = getSheet_(SHEETS.DISPENSE_HEADER);
     ensureHeaders_(header, HEADERS.DISPENSE_HEADER);
     const detail = getSheet_(SHEETS.DISPENSE_ITEMS);
+    ensureHeaders_(detail, HEADERS.DISPENSE_ITEMS);
     const txn = getSheet_(SHEETS.STOCK_TRANSACTION);
     const lotSheet = getSheet_(SHEETS.STOCK_LOT);
 
@@ -512,23 +537,58 @@ function submitVisit_(p,s) {
     const lh = headerMap_(lotData[0]);
     const plans = [];
     const requestedByItem = {};
+    const recordedItems = [];
 
     items.forEach(function(raw) {
+      if (!raw || typeof raw !== 'object') throw new Error('INVALID_INPUT');
+      const recordOnly = raw.recordOnly === true;
       const itemCode = String(raw.itemCode || '').trim();
       const qty = Number(raw.qty);
-      if (!itemCode || !Number.isInteger(qty) || qty <= 0) throw new Error('INVALID_QTY');
+      if (!Number.isFinite(qty) || qty <= 0 || qty > 100000 ||
+          (!recordOnly && !Number.isInteger(qty)) ||
+          (recordOnly && Math.round(qty * 1000) !== qty * 1000)) {
+        throw new Error('INVALID_QTY');
+      }
 
-      requestedByItem[itemCode] = (requestedByItem[itemCode] || 0) + qty;
-
-      const master = masterRows.find(function(m){
+      const master = itemCode ? masterRows.find(function(m) {
         return String(m['Item Code'] || '') === itemCode && isActive_(m['Active/Inactive']);
-      });
-      if (!master) throw new Error('ITEM_NOT_FOUND');
+      }) : null;
+      if (!recordOnly && (!itemCode || !master)) throw new Error('ITEM_NOT_FOUND');
+      if (recordOnly && itemCode && !master) throw new Error('ITEM_NOT_FOUND');
 
-      const normalizedType = normalizeItemType_(master['Item Type'] || raw.itemType || '');
+      // Non-master free text is accepted only as a MEDICAL_SUPPLY usage log.
+      // Drug records must refer to the active item master so existing allergy
+      // review and drug-safety checks cannot be bypassed by choosing record-only.
+      if (recordOnly && !itemCode && String(raw.itemType || '') !== 'MEDICAL_SUPPLY') {
+        throw new Error('RECORD_ONLY_SUPPLY_REQUIRED');
+      }
+      const customName = recordOnly && !itemCode ? safeUsageLogText_(raw.itemName,200) : '';
+      const customUnit = recordOnly ? safeUsageLogText_(raw.unit || (master && master.Unit),40) : '';
+      if (recordOnly && (!customUnit || (!master && !customName))) {
+        throw new Error('INVALID_USAGE_ENTRY');
+      }
+      const resolvedMaster = master || {
+        'Item Type':'MEDICAL_SUPPLY','Generic Name':customName,'Trade Name':'',Unit:customUnit
+      };
+      const normalizedType = normalizeItemType_(resolvedMaster['Item Type']);
       const interventionCode = normalizedType === 'MEDICAL_SUPPLY' ? 'MEDICAL_SUPPLY' : 'MEDICATION';
       if (interventions.indexOf(interventionCode) < 0) interventions.push(interventionCode);
 
+      if (recordOnly) {
+        const itemName = master
+          ? safeUsageLogText_(
+            (master['Trade Name'] && master['Generic Name'])
+              ? master['Trade Name'] + ' (' + master['Generic Name'] + ')'
+              : (master['Trade Name'] || master['Generic Name'] || itemCode),200)
+          : customName;
+        const plan = {raw:raw,master:resolvedMaster,allocations:[],recordOnly:true,
+          itemName:itemName,unit:customUnit,qty:qty};
+        plans.push(plan);
+        recordedItems.push({itemCode:itemCode,itemName:itemName,qty:qty,unit:customUnit});
+        return;
+      }
+
+      requestedByItem[itemCode] = (requestedByItem[itemCode] || 0) + qty;
       const eligible = [];
       for (let i=1;i<lotData.length;i++) {
         const r = lotData[i];
@@ -567,7 +627,7 @@ function submitVisit_(p,s) {
       });
 
       if (left !== 0) throw new Error('STOCK_ALLOCATION_FAILED');
-      plans.push({raw:raw,master:master,allocations:allocations});
+      plans.push({raw:raw,master:resolvedMaster,allocations:allocations,recordOnly:false});
     });
 
     validateStudentDrugSafetyForDispense_(recipient,p,plans);
@@ -583,42 +643,47 @@ function submitVisit_(p,s) {
     const trows = [];
 
     plans.forEach(function(plan){
+      if (plan.recordOnly) {
+        drows.push({
+          'Dispense Item ID':'DI'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
+          'Visit ID':visitId,
+          'Item Code':String(plan.raw.itemCode || ''),
+          'Item Type':String(plan.master['Item Type'] || ''),
+          'Item Name':plan.itemName,
+          'Qty':plan.qty,
+          'Unit':plan.unit,
+          'Created At':t,
+          'Stock Effect':'RECORD_ONLY'
+        });
+        return; // No FEFO allocation, no stock transaction and no stock mutation.
+      }
       plan.allocations.forEach(function(a){
         const r = lotData[a.row];
         const before = Number(r[lh['Current Qty']]) || 0;
         const after = before - a.qty;
         if (after < 0) throw new Error('STOCK_CHANGED');
-
         r[lh['Current Qty']] = after;
 
         const itemName = (plan.master['Trade Name'] && plan.master['Generic Name'])
           ? (plan.master['Trade Name'] + ' (' + plan.master['Generic Name'] + ')')
           : (plan.master['Trade Name'] || plan.master['Generic Name'] || plan.raw.itemName || plan.raw.itemCode || '');
 
-        drows.push([
-          'DI'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
-          visitId,
-          String(plan.raw.itemCode),
-          String(plan.master['Item Type'] || plan.raw.itemType || ''),
-          itemName,
-          a.qty,
-          String(plan.master.Unit || plan.raw.unit || ''),
-          t
-        ]);
+        drows.push({
+          'Dispense Item ID':'DI'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
+          'Visit ID':visitId,
+          'Item Code':String(plan.raw.itemCode),
+          'Item Type':String(plan.master['Item Type'] || plan.raw.itemType || ''),
+          'Item Name':itemName,
+          'Qty':a.qty,
+          'Unit':String(plan.master.Unit || ''),
+          'Created At':t,
+          'Stock Effect':'DEDUCT'
+        });
 
         trows.push([
           'ST'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
-          'DISPENSE',
-          visitId,
-          String(plan.raw.itemCode),
-          a.lotId,
-          a.qty,
-          before,
-          after,
-          a.unitCost,
-          'Dispense',
-          s.staffId,
-          t
+          'DISPENSE',visitId,String(plan.raw.itemCode),a.lotId,a.qty,
+          before,after,a.unitCost,'Dispense',s.staffId,t
         ]);
       });
     });
@@ -628,8 +693,10 @@ function submitVisit_(p,s) {
     const visitValues = {
       'Visit ID':visitId,
       'Student ID':studentId,
-      'Visit Date':Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd'),
-      'Visit Time':Utilities.formatDate(new Date(),getTimeZone_(),'HH:mm:ss'),
+      'Visit Date':visitDate,
+      // Avoid fabricating a historical time for backdated entries.
+      'Visit Time':visitDate === Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd')
+        ? Utilities.formatDate(new Date(),getTimeZone_(),'HH:mm:ss') : '',
       'Symptoms':JSON.stringify(symptoms),
       'Other Symptom':String(p.otherSymptom || ''),
       'Note':String(p.note || ''),
@@ -670,13 +737,19 @@ function submitVisit_(p,s) {
     });
 
     // Write stock first, then records. Rollback is attempted on any error.
-    if (items.length) {
+    if (trows.length) {
       lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
       stockWritten = true;
     }
     header.getRange(header.getLastRow()+1,1,1,hrow.length).setValues([hrow]);
     if (drows.length) {
-      detail.getRange(detail.getLastRow()+1,1,drows.length,drows[0].length).setValues(drows);
+      const detailHeaders = detail.getRange(1,1,1,detail.getLastColumn()).getValues()[0].map(String);
+      const detailValues = drows.map(function(row) {
+        return detailHeaders.map(function(h) {
+          return Object.prototype.hasOwnProperty.call(row,h) ? row[h] : '';
+        });
+      });
+      detail.getRange(detail.getLastRow()+1,1,detailValues.length,detailHeaders.length).setValues(detailValues);
     }
     if (trows.length) {
       txn.getRange(txn.getLastRow()+1,1,trows.length,trows[0].length).setValues(trows);
@@ -685,8 +758,8 @@ function submitVisit_(p,s) {
     clearCache_(SHEETS.DISPENSE_HEADER);
     clearCache_(SHEETS.DISPENSE_ITEMS);
     clearCache_(SHEETS.STOCK_TRANSACTION);
-    syncItemQty_(lotData);
-    audit_(s,'DISPENSE','DISPENSE',visitId,'SUCCESS');
+    if (trows.length) syncItemQty_(lotData);
+    audit_(s,trows.length ? 'DISPENSE' : 'RECORD_USE','DISPENSE',visitId,'SUCCESS');
 
     const resultItems = Object.keys(requestedByItem).map(function(code){
       return {itemCode:code,dispensedQty:requestedByItem[code]};
@@ -696,6 +769,7 @@ function submitVisit_(p,s) {
     completedResult = {success:true,data:{
       visitId:visitId,
       items:resultItems,
+      recordedItems:recordedItems,
       disposition:disposition,
       status:'COMPLETED',
       recipientType:recipient.recipientType,
@@ -715,8 +789,8 @@ function submitVisit_(p,s) {
         truncateAfterRow_(getSheet_(SHEETS.DISPENSE_HEADER), headerLastRow);
         truncateAfterRow_(getSheet_(SHEETS.DISPENSE_ITEMS), detailLastRow);
         truncateAfterRow_(getSheet_(SHEETS.STOCK_TRANSACTION), txnLastRow);
-        if (lotSnapshot) syncItemQty_(lotSnapshot);
-        invalidateStockCache_();
+        if (stockWritten && lotSnapshot) syncItemQty_(lotSnapshot);
+        if (stockWritten) invalidateStockCache_();
       }
     } catch (rollbackErr) {
       auditSystem_('ROLLBACK_FAILED','DISPENSE',String(err && err.message || err),'FAILED');
@@ -1791,7 +1865,10 @@ function humanError_(code) {
     ITEM_NOT_FOUND:'ไม่พบรายการยา/เวชภัณฑ์',
     INSUFFICIENT_STOCK:'จำนวน Stock ไม่เพียงพอ',
     DUPLICATE_TRANSACTION:'รายการนี้ถูกบันทึกไปแล้ว',
-    INVALID_QTY:'จำนวนต้องเป็นจำนวนเต็มมากกว่า 0',
+    INVALID_QTY:'จำนวนไม่ถูกต้อง: รายการตัด Stock ต้องเป็นจำนวนเต็ม ส่วนบันทึกการใช้รองรับทศนิยม 3 ตำแหน่ง',
+    INVALID_VISIT_DATE:'วันที่รับบริการไม่ถูกต้อง หรือเป็นวันในอนาคต',
+    INVALID_USAGE_ENTRY:'กรุณาระบุชื่อและหน่วยของรายการบันทึกการใช้ให้ครบ',
+    RECORD_ONLY_SUPPLY_REQUIRED:'รายการ Free Text แบบไม่ตัด Stock รองรับเฉพาะเวชภัณฑ์ หากเป็นยากรุณาเลือกจาก Item Master',
     STOCK_LOT_NOT_FOUND:'ไม่พบ Stock Lot',
     USER_ALREADY_EXISTS:'มี Staff ID นี้อยู่แล้ว',
     USER_NOT_FOUND:'ไม่พบผู้ใช้งาน',
