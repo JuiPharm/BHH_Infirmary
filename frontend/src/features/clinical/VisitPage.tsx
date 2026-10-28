@@ -5,7 +5,7 @@ import { StudentSafetyCard } from '../../components/StudentSafetyCard';
 import { StudentSafetyEditor } from '../../components/StudentSafetyEditor';
 import { useAuth } from '../../context/AuthContext';
 import { normalizeItemType } from '../../domain/stock';
-import { hasVisitClinicalContent } from '../../domain/visit';
+import { hasVisitClinicalContent, isValidVisitDate, todayInBangkok, validRecordOnlyQuantity } from '../../domain/visit';
 import {
   CartItem,
   DrugAllergyStatus,
@@ -122,6 +122,11 @@ export const VisitPage: React.FC = () => {
   const [spo2, setSpo2] = useState('');
   const [weight, setWeight] = useState('');
 
+  const [visitDate, setVisitDate] = useState(todayInBangkok);
+  const [usageType, setUsageType] = useState<'DRUG' | 'MEDICAL_SUPPLY'>('MEDICAL_SUPPLY');
+  const [usageName, setUsageName] = useState('');
+  const [usageQty, setUsageQty] = useState('1');
+  const [usageUnit, setUsageUnit] = useState('ชิ้น');
   const [items, setItems] = useState<Item[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [itemSearch, setItemSearch] = useState('');
@@ -366,47 +371,46 @@ export const VisitPage: React.FC = () => {
   };
 
   const addToCart = (item: Item) => {
-    const currentStock = Number(item.QTY) || 0;
-    if (currentStock <= 0) {
-      Swal.fire('สต็อกหมด', 'รายการนี้ไม่มี usable stock สำหรับจ่าย', 'warning');
-      return;
-    }
-
-    const existing = cart.find((c) => c.itemCode === item['Item Code']);
+    const itemCode = item['Item Code'];
+    const rowKey = 'MASTER:' + itemCode;
+    const existing = cart.find((line) => line.rowKey === rowKey);
     if (existing) {
-      if (existing.qty >= currentStock) {
-        Swal.fire('เกินสต็อก', `คงเหลือสูงสุด ${currentStock} ${item.Unit}`, 'warning');
-        return;
-      }
-      setCart(cart.map((c) => c.itemCode === item['Item Code'] ? { ...c, qty: c.qty + 1 } : c));
+      setCart(cart.map((line) => line.rowKey === rowKey
+        ? { ...line, qty: line.qty + 1 } : line));
       return;
     }
-
-    setCart([
-      ...cart,
-      {
-        itemCode: item['Item Code'],
-        genericName: item['Generic Name'],
-        tradeName: item['Trade Name'],
-        itemType: item['Item Type'],
-        unit: item.Unit,
-        currentStock,
-        qty: 1
-      }
-    ]);
+    setCart([...cart, {
+      rowKey, recordOnly:true, itemCode,
+      genericName:item['Generic Name'],tradeName:item['Trade Name'],
+      itemType:item['Item Type'],unit:item.Unit || 'หน่วย',
+      currentStock:0,qty:1
+    }]);
   };
 
-  const changeCartQty = (itemCode: string, delta: number) => {
-    setCart(
-      cart
-        .map((c) => {
-          if (c.itemCode !== itemCode) return c;
-          const qty = c.qty + delta;
-          if (qty > c.currentStock) return c;
-          return qty <= 0 ? null : { ...c, qty };
-        })
-        .filter(Boolean) as CartItem[]
-    );
+  const addFreeTextUsage = () => {
+    const name = usageName.trim();
+    const unit = usageUnit.trim();
+    const qty = Number(usageQty);
+    if (!name || name.length > 200 || !unit || unit.length > 40 || !validRecordOnlyQuantity(qty)) {
+      Swal.fire('ข้อมูลสั่งใช้ไม่ครบ', 'ระบุชื่อ จำนวนมากกว่า 0 (ทศนิยมได้ไม่เกิน 3 ตำแหน่ง) และหน่วย', 'warning');
+      return;
+    }
+    setCart((current) => [...current, {
+      rowKey:'FREE:'+Date.now()+':'+Math.random().toString(36).slice(2,9),
+      recordOnly:true,itemCode:'',genericName:name,tradeName:'',
+      itemType:usageType,unit,currentStock:0,qty
+    }]);
+    setUsageName('');
+    setUsageQty('1');
+  };
+
+  const updateOrderLine = (rowKey: string, change: Partial<Pick<CartItem,'qty' | 'unit'>>) => {
+    setCart((current) => current.map((line) =>
+      line.rowKey === rowKey ? { ...line, ...change } : line));
+  };
+
+  const removeCartLine = (rowKey: string) => {
+    setCart((current) => current.filter((line) => line.rowKey !== rowKey));
   };
 
   const buildVitals = (): VisitVitals => ({
@@ -420,6 +424,11 @@ export const VisitPage: React.FC = () => {
   });
 
   const resetForm = () => {
+    setVisitDate(todayInBangkok());
+    setUsageType('MEDICAL_SUPPLY');
+    setUsageName('');
+    setUsageQty('1');
+    setUsageUnit('ชิ้น');
     clearRecipient();
     setSelectedSymptomIds([]);
     setSymptomSearch('');
@@ -443,13 +452,17 @@ export const VisitPage: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (!isValidVisitDate(visitDate)) {
+      Swal.fire('วันที่รับบริการไม่ถูกต้อง', 'กรุณาเลือกวันที่จริงที่ไม่เกินวันนี้', 'warning');
+      return;
+    }
     if (!selectedRecipient || !session?.token) {
       Swal.fire('ยังไม่ได้เลือกผู้มารับบริการ', 'กรุณาค้นหาจาก Master หรือใช้ Free Text Visit', 'warning');
       return;
     }
 
     const vitals = buildVitals();
-    if (!hasVisitClinicalContent({
+    if (!cart.length && !hasVisitClinicalContent({
       symptoms: selectedSymptomIds,
       otherSymptom,
       note,
@@ -480,14 +493,14 @@ export const VisitPage: React.FC = () => {
     ) {
       Swal.fire(
         'ยังตรวจสอบ Drug Allergy ไม่สำเร็จ',
-        'ไม่สามารถจ่ายยาได้จนกว่าจะโหลด Student Safety Profile สำเร็จ',
+        'ต้องตรวจสอบ Student Safety Profile ก่อนบันทึกการสั่งใช้ยา',
         'error'
       );
       return;
     }
 
     if (hasDrug && selectedRecipient.recipientSource === 'STUDENT_MASTER' && !studentSafetyReviewed) {
-      Swal.fire('กรุณาตรวจสอบประวัติแพ้ยา', 'ยืนยันการอ่าน Student Safety Profile ก่อนจ่ายยา', 'warning');
+      Swal.fire('กรุณาตรวจสอบประวัติแพ้ยา', 'ยืนยันการอ่าน Student Safety Profile ก่อนบันทึกรายการสั่งใช้ยา', 'warning');
       return;
     }
 
@@ -501,7 +514,7 @@ export const VisitPage: React.FC = () => {
         const allergyConfirm = await Swal.fire({
           icon: 'warning',
           title: 'ยังยืนยันประวัติแพ้ยาไม่ได้',
-          text: 'Drug Allergy Status = UNKNOWN กรุณาตรวจสอบความเหมาะสมก่อนดำเนินการจ่ายยา',
+          text: 'Drug Allergy Status = UNKNOWN กรุณาตรวจสอบความเหมาะสมก่อนบันทึกรายการสั่งใช้ยา',
           showCancelButton: true,
           confirmButtonText: 'ตรวจสอบแล้ว ดำเนินการต่อ',
           cancelButtonText: 'กลับไปแก้ไข',
@@ -511,9 +524,9 @@ export const VisitPage: React.FC = () => {
       }
     }
 
-    for (const c of cart) {
-      if (c.qty > c.currentStock) {
-        Swal.fire('สต็อกไม่เพียงพอ', `${c.genericName || c.itemCode} คงเหลือ ${c.currentStock}`, 'error');
+    for (const line of cart) {
+      if (!validRecordOnlyQuantity(line.qty) || !line.unit.trim() || line.unit.length > 40) {
+        Swal.fire('รายการสั่งใช้ไม่ถูกต้อง', 'กรุณาตรวจสอบจำนวนและหน่วยให้ครบ', 'warning');
         return;
       }
     }
@@ -533,7 +546,8 @@ export const VisitPage: React.FC = () => {
         `Visit Category: ${derivedCategory || '-'}`,
         `Clinical Alert: ${clinicalAlert}`,
         `Disposition: ${dispositionLabel}`,
-        `ยา/เวชภัณฑ์: ${cart.length ? cart.length + ' รายการ' : 'ไม่มีการจ่าย'}`
+        `วันที่รับบริการ: ${visitDate}`,
+        `บันทึกรายการสั่งใช้ยา/เวชภัณฑ์: ${cart.length} รายการ`
       ].join('\n'),
       icon: disposition === 'EMERGENCY_TRANSFER' ? 'warning' : 'question',
       showCancelButton: true,
@@ -556,6 +570,7 @@ export const VisitPage: React.FC = () => {
 
     try {
       const payload = {
+        visitDate,
         recipient: selectedRecipient,
         studentId:
           selectedRecipient.recipientSource === 'STUDENT_MASTER'
@@ -606,7 +621,9 @@ export const VisitPage: React.FC = () => {
       let notice = '';
       let icon: 'success' | 'warning' = 'success';
 
-      if (notification?.status === 'SENT') {
+      if (notification?.type === 'HISTORICAL_VISIT') {
+        notice = 'ย้อนหลัง: บันทึกประวัติสำเร็จ ไม่ส่งอีเมลแจ้งเหตุใหม่สำหรับ Visit ที่ผ่านมา';
+      } else if (notification?.status === 'SENT') {
         notice = 'Notification: ส่ง Email สำเร็จ';
       } else if (notification?.status === 'FAILED') {
         icon = 'warning';
@@ -685,6 +702,22 @@ export const VisitPage: React.FC = () => {
           ค้นหา Student ID / Staff ID / ชื่อ ระบบจะระบุประเภทผู้รับบริการจาก Master ให้อัตโนมัติ
         </p>
       </div>
+
+      <section className="card" style={{ marginBottom: 16, padding: '14px 20px' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div className="form-group" style={{ marginBottom: 0, flex: '1 1 220px', maxWidth: 320 }}>
+            <label className="form-label" htmlFor="visit-date">วันที่รับบริการ (ย้อนหลังได้)</label>
+            <input id="visit-date" className="form-control" type="date"
+              value={visitDate} max={todayInBangkok()}
+              onChange={(e) => setVisitDate(e.target.value)} required />
+          </div>
+          <button className="btn btn-outline btn-sm" type="button"
+            onClick={() => setVisitDate(todayInBangkok())}>วันนี้</button>
+          <span style={{ color: '#64748b', fontSize: '.83rem' }}>
+            ระบบบันทึกวันและเวลาที่ทำรายการจริงแยกไว้สำหรับ Audit
+          </span>
+        </div>
+      </section>
 
       <div className="grid-2">
         <div>
@@ -1189,69 +1222,110 @@ export const VisitPage: React.FC = () => {
         <div>
           <section className="card">
             <div className="card-header">
-              <span className="card-title">4. ยา/เวชภัณฑ์ (Optional)</span>
+              <span className="card-title">4. บันทึกการสั่งใช้ยา / เวชภัณฑ์ (Optional)</span>
               <button className="btn btn-outline btn-sm" onClick={loadItems} disabled={loadingItems}>
-                {loadingItems ? 'กำลังโหลด...' : 'รีเฟรช'}
+                {loadingItems ? 'กำลังโหลด...' : 'รีเฟรชรายการ'}
               </button>
             </div>
-            <p style={{ color: '#64748b', fontSize: '.85rem' }}>
-              Visit บันทึกได้โดยไม่ต้องจ่ายยา/เวชภัณฑ์ และ backend จะจ่ายเฉพาะ usable ACTIVE lot ตาม FEFO
+            <p style={{ color:'#64748b',fontSize:'.85rem' }}>
+              บันทึกชื่อรายการ จำนวน และหน่วยที่สั่งใช้ ไม่มีการตัดยอดคลังหรือบันทึก Stock Transaction
             </p>
-            <div className="tabs" style={{ marginBottom: 10 }}>
-              {(['ALL','DRUG','MEDICAL_SUPPLY'] as const).map((x) => (
-                <button
-                  key={x}
-                  className={`tab-item ${itemTypeFilter === x ? 'active' : ''}`}
-                  onClick={() => setItemTypeFilter(x)}
-                >
-                  {x === 'ALL' ? 'ทั้งหมด' : x === 'DRUG' ? 'ยา' : 'เวชภัณฑ์'}
+            <div className="tabs" style={{ marginBottom:10 }}>
+              {(['ALL','DRUG','MEDICAL_SUPPLY'] as const).map((type) => (
+                <button type="button" key={type}
+                  className={`tab-item ${itemTypeFilter === type ? 'active' : ''}`}
+                  onClick={() => setItemTypeFilter(type)}>
+                  {type === 'ALL' ? 'ทั้งหมด' : type === 'DRUG' ? 'ยา' : 'เวชภัณฑ์'}
                 </button>
               ))}
             </div>
-            <input
-              className="form-control"
-              placeholder="ค้นหารายการ..."
-              value={itemSearch}
-              onChange={(e) => setItemSearch(e.target.value)}
-            />
-            <div style={{ maxHeight: 260, overflowY: 'auto', marginTop: 10, border: '1px solid #e2e8f0', borderRadius: 8 }}>
+            <input className="form-control" placeholder="ค้นหาชื่อยาหรือเวชภัณฑ์..."
+              value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} />
+            <div style={{ maxHeight:240,overflowY:'auto',marginTop:10,
+              border:'1px solid #e2e8f0',borderRadius:8 }}>
               {filteredItems.map((item) => (
                 <div key={item['Item Code']} className="cart-item">
                   <div>
                     <strong>{item['Trade Name'] || item['Generic Name'] || item['Item Code']}</strong>
-                    <div style={{ color: '#64748b', fontSize: '.8rem' }}>
-                      {item['Generic Name']} · คงเหลือ {item.QTY} {item.Unit}
+                    <div style={{ color:'#64748b',fontSize:'.8rem' }}>
+                      {item['Generic Name']} · หน่วยมาตรฐาน: {item.Unit || '-'}
                     </div>
                   </div>
-                  <button
-                    className="btn btn-outline btn-sm"
-                    onClick={() => addToCart(item)}
-                    disabled={Number(item.QTY) <= 0}
-                  >
-                    + เพิ่ม
-                  </button>
+                  <button type="button" className="btn btn-outline btn-sm"
+                    onClick={() => addToCart(item)}>+ เพิ่มรายการ</button>
                 </div>
               ))}
             </div>
-
-            <div style={{ marginTop: 14 }}>
+            <div style={{ padding:12,marginTop:12,background:'#f0f7ff',
+              border:'1px solid #bfdbfe',borderRadius:10 }}>
+              <strong>เพิ่มรายการ Free Text</strong>
+              <p style={{ fontSize:'.8rem',color:'#64748b',margin:'4px 0 10px' }}>
+                ใช้เมื่อไม่มีชื่อยา/เวชภัณฑ์อยู่ในรายการ โดยยังคงตรวจสอบประวัติแพ้ยาก่อนบันทึกยา
+              </p>
+              <div style={{ display:'grid',gap:8,
+                gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))' }}>
+                <div>
+                  <label className="form-label" htmlFor="usage-type">ประเภท</label>
+                  <select id="usage-type" className="form-control"
+                    value={usageType}
+                    onChange={(e) => setUsageType(e.target.value as 'DRUG' | 'MEDICAL_SUPPLY')}>
+                    <option value="DRUG">ยา</option>
+                    <option value="MEDICAL_SUPPLY">เวชภัณฑ์</option>
+                  </select>
+                </div>
+                <div style={{ gridColumn:'1 / -1' }}>
+                  <label className="form-label" htmlFor="usage-name">ชื่อรายการสั่งใช้</label>
+                  <input id="usage-name" className="form-control" maxLength={200}
+                    placeholder="เช่น Paracetamol หรือ ผ้าก๊อซ"
+                    value={usageName} onChange={(e) => setUsageName(e.target.value)} />
+                </div>
+                <div>
+                  <label className="form-label" htmlFor="usage-qty">จำนวน</label>
+                  <input id="usage-qty" className="form-control" type="number"
+                    min="0.001" max="100000" step="0.001"
+                    value={usageQty} onChange={(e) => setUsageQty(e.target.value)} />
+                </div>
+                <div>
+                  <label className="form-label" htmlFor="usage-unit">หน่วย</label>
+                  <input id="usage-unit" className="form-control"
+                    maxLength={40} placeholder="เม็ด / แผ่น / mL"
+                    value={usageUnit} onChange={(e) => setUsageUnit(e.target.value)} />
+                </div>
+                <button type="button" className="btn btn-primary btn-sm"
+                  style={{ alignSelf:'end' }} onClick={addFreeTextUsage}>
+                  + เพิ่มรายการสั่งใช้
+                </button>
+              </div>
+            </div>
+            <div style={{ marginTop:14 }}>
               {cart.length === 0 ? (
-                <div style={{ color: '#94a3b8', textAlign: 'center', padding: 12 }}>ไม่มีรายการจ่าย</div>
-              ) : (
-                cart.map((c) => (
-                  <div key={c.itemCode} className="cart-item">
-                    <div>
-                      <strong>{c.tradeName || c.genericName}</strong>
-                      <div style={{ color: '#64748b', fontSize: '.8rem' }}>{c.itemCode}</div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <button className="btn btn-outline btn-sm" onClick={() => changeCartQty(c.itemCode, -1)}>-</button>
-                      <strong>{c.qty}</strong>
-                      <button className="btn btn-outline btn-sm" onClick={() => changeCartQty(c.itemCode, 1)}>+</button>
+                <div style={{ color:'#94a3b8',textAlign:'center',padding:12 }}>
+                  ยังไม่มีรายการสั่งใช้
+                </div>
+              ) : cart.map((line) => (
+                <div key={line.rowKey || line.itemCode} className="cart-item"
+                  style={{ alignItems:'flex-start',flexWrap:'wrap',gap:10 }}>
+                  <div style={{ flex:'1 1 150px' }}>
+                    <strong>{line.tradeName || line.genericName || line.itemCode}</strong>
+                    <div style={{ color:'#64748b',fontSize:'.8rem' }}>
+                      {line.itemCode || 'Free Text'} · {normalizeItemType(line.itemType) === 'DRUG' ? 'ยา' : 'เวชภัณฑ์'}
                     </div>
                   </div>
-                ))
-              )}
+                  <div style={{ display:'flex',gap:6,flexWrap:'wrap',alignItems:'center' }}>
+                    <input className="form-control" style={{ width:94 }}
+                      aria-label={`จำนวน ${line.genericName || line.itemCode}`}
+                      type="number" min="0.001" max="100000" step="0.001"
+                      value={Number.isFinite(line.qty) ? line.qty : ''}
+                      onChange={(e) => updateOrderLine(line.rowKey || '',{ qty:Number(e.target.value) })} />
+                    <input className="form-control" style={{ width:92 }}
+                      aria-label={`หน่วย ${line.genericName || line.itemCode}`}
+                      maxLength={40} value={line.unit}
+                      onChange={(e) => updateOrderLine(line.rowKey || '',{unit:e.target.value})} />
+                    <button type="button" className="btn btn-outline btn-sm"
+                      onClick={() => removeCartLine(line.rowKey || '')} aria-label="ลบรายการ">×</button>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
 

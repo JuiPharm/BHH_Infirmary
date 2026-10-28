@@ -132,6 +132,8 @@ export interface CartItem {
   unit: string;
   currentStock: number;
   qty: number;
+  rowKey?: string;
+  recordOnly?: boolean;
 }
 
 export interface DispenseItemRecord {

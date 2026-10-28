@@ -13,7 +13,7 @@ const HEADERS = {
   ITEM_MASTER:['Item Code','Item Type','Generic Name','Trade Name','QTY','Unit','Minimum Stock','Maximum Stock','Unit Cost','Active/Inactive'],
   STOCK_LOT:['Stock Lot ID','Item Code','Lot Number','Expiry Date','Received Date','Received Qty','Current Qty','Unit Cost','Supplier','Status'],
   DISPENSE_HEADER:['Visit ID','Student ID','Visit Date','Visit Time','Symptoms','Other Symptom','Note','Staff ID','Status','Created At','Client Transaction ID','Temperature','BP Systolic','BP Diastolic','Pulse','Respiratory Rate','SpO2','Weight','Assessment','Interventions','Disposition','Outcome Note','Completed At','Recipient ID','Recipient Name','Recipient Type','Recipient Department/Class','Recipient Source','Recipient Contact','Drug Allergy Status','Drug Allergy Drug/Group','Drug Allergy Reaction','Drug Allergy Note','Symptom IDs','Symptom Categories','Derived Visit Category','Clinical Alert Level'],
-  DISPENSE_ITEMS:['Dispense Item ID','Visit ID','Item Code','Item Type','Item Name','Qty','Unit','Created At'],
+  DISPENSE_ITEMS:['Dispense Item ID','Visit ID','Item Code','Item Type','Item Name','Qty','Unit','Created At','Stock Effect'],
   STOCK_TRANSACTION:['Transaction ID','Transaction Type','Reference ID','Item Code','Stock Lot ID','Qty','Before Qty','After Qty','Unit Cost','Reason','Staff ID','Timestamp'],
   STOCK_COUNT:['Count ID','Count Line ID','Count Date','Stock Lot ID','Item Code','System Qty','Counted Qty','Variance','Reason','Staff ID','Created At'],
   SYMPTOMS:['Symptom ID','Symptom','Category','Active','Sort Order','Clinical Alert Level','Updated At','Updated By'],
@@ -22,7 +22,7 @@ const HEADERS = {
 };
 
 const ROLES = ['NURSE','ADMIN','MANAGER','SUPER_ADMIN'];
-const API_VERSION = '2.4.1';
+const API_VERSION = '2.5.0';
 
 function doGet(e) {
   return out_({success:true,service:'School Nurse System API',apiVersion:API_VERSION,timestamp:now_()});
@@ -64,6 +64,7 @@ function route_(r) {
     case 'getItems': return getItems_(r.payload || {});
     case 'submitDispense': return submitVisit_(r.payload || {}, session);
     case 'submitVisit': return submitVisit_(r.payload || {}, session);
+    case 'submitVisitV250': return submitVisit_(r.payload || {}, session);
     case 'getDispenseHistory': return getDispenseHistory_(r.payload || {}, session);
     case 'getStock': return getStock_(r.payload || {}, session);
     case 'getStockLots': return getStockLots_(r.payload || {}, session);
@@ -442,6 +443,29 @@ function getItems_(p) {
    DISPENSING
 ========================= */
 
+// Validate a calendar-only visit date without converting browser-local dates to UTC.
+ // Created At and Completed At always retain the actual audit timestamp.
+function resolveVisitDateForEntry_(rawDate) {
+  const today = Utilities.formatDate(new Date(),'Asia/Bangkok','yyyy-MM-dd');
+  if (rawDate === undefined || rawDate === null || String(rawDate).trim() === '') return today;
+  const date = String(rawDate).trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) throw new Error('INVALID_VISIT_DATE');
+  const year = Number(m[1]), month = Number(m[2]), day = Number(m[3]);
+  if (year < 2000 || year > 2100) throw new Error('INVALID_VISIT_DATE');
+  const d = new Date(Date.UTC(year,month-1,day));
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month-1 || d.getUTCDate() !== day || date > today) {
+    throw new Error('INVALID_VISIT_DATE');
+  }
+  return date;
+}
+
+function safeUsageLogText_(value,maxLength) {
+  const input = limitedText_(value,maxLength).trim();
+  // Free-text clinical orders must never persist formulas in Sheets.
+  return /^[=+@-]/.test(input) ? "'" + input : input;
+}
+
 function submitDispense_(p,s) {
   return submitVisit_(p,s);
 }
@@ -451,6 +475,7 @@ function submitVisit_(p,s) {
 
   const recipient = resolveRecipientForVisit_(p);
   const studentId = recipient.recipientSource === 'STUDENT_MASTER' ? recipient.recipientId : '';
+  const visitDate = resolveVisitDateForEntry_(p.visitDate);
   const clientTx = String(p.clientTransactionId || '').trim();
   const items = Array.isArray(p.items) ? p.items : [];
   const symptomSelection = resolveVisitSymptoms_(p);
@@ -471,7 +496,7 @@ function submitVisit_(p,s) {
   });
 
   if (!clientTx) throw new Error('INVALID_INPUT');
-  if (!symptoms.length && !String(p.otherSymptom || '').trim() && !String(p.note || '').trim() && !assessment && !interventions.length && !hasVitals) {
+  if (!symptoms.length && !String(p.otherSymptom || '').trim() && !String(p.note || '').trim() && !assessment && !interventions.length && !hasVitals && !items.length) {
     throw new Error('VISIT_CLINICAL_DATA_REQUIRED');
   }
   if (!disposition) throw new Error('DISPOSITION_REQUIRED');
@@ -479,148 +504,79 @@ function submitVisit_(p,s) {
   const allowedDisposition = ['RETURN_TO_CLASS','OBSERVATION','SEND_HOME','PARENT_PICKUP','REFER_CLINIC','REFER_HOSPITAL','EMERGENCY_TRANSFER','OTHER'];
   if (allowedDisposition.indexOf(disposition) < 0) throw new Error('INVALID_DISPOSITION');
 
+  // A Visit is a clinical/order record. This function NEVER reads or writes
+  // STOCK_LOT, STOCK_TRANSACTION, or ITEM_MASTER.QTY. Legacy recordOnly:false
+  // flags are deliberately ignored: Visit submission cannot deduct inventory.
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
-
-  // Rollback state must live outside the try block so catch can restore it.
-  let lotSnapshot = null;
   let headerLastRow = null;
   let detailLastRow = null;
-  let txnLastRow = null;
-  let stockWritten = false;
   let completedResult = null;
   let shouldNotify = false;
 
   try {
-    const ss = getSpreadsheet_();
     const header = getSheet_(SHEETS.DISPENSE_HEADER);
-    ensureHeaders_(header, HEADERS.DISPENSE_HEADER);
+    ensureHeaders_(header,HEADERS.DISPENSE_HEADER);
     const detail = getSheet_(SHEETS.DISPENSE_ITEMS);
-    const txn = getSheet_(SHEETS.STOCK_TRANSACTION);
-    const lotSheet = getSheet_(SHEETS.STOCK_LOT);
+    ensureHeaders_(detail,HEADERS.DISPENSE_ITEMS);
 
-    if (rows_(SHEETS.DISPENSE_HEADER).some(function(x){
-      return String(x['Client Transaction ID'] || '') === clientTx;
-    })) {
-      throw new Error('DUPLICATE_TRANSACTION');
-    }
+    if (rows_(SHEETS.DISPENSE_HEADER).some(function(row) {
+      return String(row['Client Transaction ID'] || '') === clientTx;
+    })) throw new Error('DUPLICATE_TRANSACTION');
 
-    const masterRows = rows_(SHEETS.ITEM_MASTER);
-    const lotData = lotSheet.getDataRange().getValues();
-    if (!lotData.length) throw new Error('STOCK_SCHEMA_ERROR');
-
-    const lh = headerMap_(lotData[0]);
-    const plans = [];
-    const requestedByItem = {};
-
-    items.forEach(function(raw) {
+    if (items.length > 50) throw new Error('INVALID_INPUT');
+    const masterRows = items.some(function(raw) {return raw && String(raw.itemCode || '').trim();})
+      ? rows_(SHEETS.ITEM_MASTER) : [];
+    const plans = items.map(function(raw) {
+      if (!raw || typeof raw !== 'object') throw new Error('INVALID_INPUT');
       const itemCode = String(raw.itemCode || '').trim();
       const qty = Number(raw.qty);
-      if (!itemCode || !Number.isInteger(qty) || qty <= 0) throw new Error('INVALID_QTY');
+      if (!Number.isFinite(qty) || qty <= 0 || qty > 100000 ||
+          Math.abs(Math.round(qty*1000)-qty*1000)>1e-7) throw new Error('INVALID_QTY');
+      const master = itemCode ? masterRows.find(function(item) {
+        return String(item['Item Code'] || '') === itemCode && isActive_(item['Active/Inactive']);
+      }) : null;
+      if (itemCode && !master) throw new Error('ITEM_NOT_FOUND');
+      const type = master
+        ? normalizeItemType_(master['Item Type'])
+        : String(raw.itemType || '').trim().toUpperCase();
+      if (['DRUG','MEDICAL_SUPPLY'].indexOf(type) < 0) throw new Error('INVALID_INPUT');
 
-      requestedByItem[itemCode] = (requestedByItem[itemCode] || 0) + qty;
+      const itemName = master ? safeUsageLogText_(
+        (master['Trade Name'] && master['Generic Name'])
+          ? master['Trade Name']+' ('+master['Generic Name']+')'
+          : (master['Trade Name'] || master['Generic Name'] || itemCode),200)
+        : safeUsageLogText_(raw.itemName,200);
+      const unit = safeUsageLogText_(raw.unit || (master && master.Unit),40);
+      if (!itemName || !unit) throw new Error('INVALID_USAGE_ENTRY');
 
-      const master = masterRows.find(function(m){
-        return String(m['Item Code'] || '') === itemCode && isActive_(m['Active/Inactive']);
-      });
-      if (!master) throw new Error('ITEM_NOT_FOUND');
-
-      const normalizedType = normalizeItemType_(master['Item Type'] || raw.itemType || '');
-      const interventionCode = normalizedType === 'MEDICAL_SUPPLY' ? 'MEDICAL_SUPPLY' : 'MEDICATION';
-      if (interventions.indexOf(interventionCode) < 0) interventions.push(interventionCode);
-
-      const eligible = [];
-      for (let i=1;i<lotData.length;i++) {
-        const r = lotData[i];
-        if (String(r[lh['Item Code']] || '') !== itemCode) continue;
-        if (String(r[lh['Status']] || '').toUpperCase() === 'INACTIVE') continue;
-
-        const current = Number(r[lh['Current Qty']]) || 0;
-        const expiry = parseDate_(r[lh['Expiry Date']]);
-        if (isUsableLot_(String(r[lh['Status']] || ''), expiry, current, new Date())) {
-          eligible.push({
-            row:i,
-            lotId:String(r[lh['Stock Lot ID']] || ''),
-            expiryDate:expiry,
-            expiry:String(r[lh['Expiry Date']] || ''),
-            current:current,
-            unitCost:Number(r[lh['Unit Cost']]) || Number(master['Unit Cost']) || 0
-          });
-        }
-      }
-
-      eligible.sort(function(a,b){
-        return a.expiryDate.getTime()-b.expiryDate.getTime() ||
-               a.lotId.localeCompare(b.lotId);
-      });
-
-      const available = eligible.reduce(function(sum,x){return sum+x.current;},0);
-      if (qty > available) throw new Error('INSUFFICIENT_STOCK');
-
-      let left = qty;
-      const allocations = [];
-      eligible.forEach(function(lot){
-        if (left <= 0) return;
-        const n = Math.min(left,lot.current);
-        allocations.push(Object.assign({},lot,{qty:n}));
-        left -= n;
-      });
-
-      if (left !== 0) throw new Error('STOCK_ALLOCATION_FAILED');
-      plans.push({raw:raw,master:master,allocations:allocations});
+      // Safety checks keep their old contract (a plan with master Item Type),
+      // but no lot is allocated. Drug order != drug administration.
+      const resolvedMaster = master || {'Item Type':type,'Generic Name':itemName,
+        'Trade Name':'',Unit:unit};
+      return {raw:raw,master:resolvedMaster,itemCode:itemCode,itemName:itemName,
+        qty:qty,unit:unit,type:type,recordOnly:true,allocations:[]};
     });
 
     validateStudentDrugSafetyForDispense_(recipient,p,plans);
     const allergy = validateFreeTextAllergyForDispense_(recipient,p,plans);
 
-    lotSnapshot = lotData.map(function(r){return r.slice();});
     headerLastRow = header.getLastRow();
     detailLastRow = detail.getLastRow();
-    txnLastRow = txn.getLastRow();
     const visitId = 'V'+Utilities.getUuid().replace(/-/g,'').slice(0,16);
     const t = now_();
-    const drows = [];
-    const trows = [];
-
-    plans.forEach(function(plan){
-      plan.allocations.forEach(function(a){
-        const r = lotData[a.row];
-        const before = Number(r[lh['Current Qty']]) || 0;
-        const after = before - a.qty;
-        if (after < 0) throw new Error('STOCK_CHANGED');
-
-        r[lh['Current Qty']] = after;
-
-        const itemName = (plan.master['Trade Name'] && plan.master['Generic Name'])
-          ? (plan.master['Trade Name'] + ' (' + plan.master['Generic Name'] + ')')
-          : (plan.master['Trade Name'] || plan.master['Generic Name'] || plan.raw.itemName || plan.raw.itemCode || '');
-
-        drows.push([
-          'DI'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
-          visitId,
-          String(plan.raw.itemCode),
-          String(plan.master['Item Type'] || plan.raw.itemType || ''),
-          itemName,
-          a.qty,
-          String(plan.master.Unit || plan.raw.unit || ''),
-          t
-        ]);
-
-        trows.push([
-          'ST'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
-          'DISPENSE',
-          visitId,
-          String(plan.raw.itemCode),
-          a.lotId,
-          a.qty,
-          before,
-          after,
-          a.unitCost,
-          'Dispense',
-          s.staffId,
-          t
-        ]);
-      });
+    const drows = plans.map(function(plan) {
+      return {
+        'Dispense Item ID':'DI'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
+        'Visit ID':visitId,
+        'Item Code':plan.itemCode,
+        'Item Type':plan.type,
+        'Item Name':plan.itemName,
+        'Qty':plan.qty,
+        'Unit':plan.unit,
+        'Created At':t,
+        'Stock Effect':'ORDER_ONLY'
+      };
     });
 
     const vitals = validateVitals_(rawVitals);
@@ -628,8 +584,10 @@ function submitVisit_(p,s) {
     const visitValues = {
       'Visit ID':visitId,
       'Student ID':studentId,
-      'Visit Date':Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd'),
-      'Visit Time':Utilities.formatDate(new Date(),getTimeZone_(),'HH:mm:ss'),
+      'Visit Date':visitDate,
+      // Avoid fabricating a historical time for backdated entries.
+      'Visit Time':visitDate === Utilities.formatDate(new Date(),'Asia/Bangkok','yyyy-MM-dd')
+        ? Utilities.formatDate(new Date(),'Asia/Bangkok','HH:mm:ss') : '',
       'Symptoms':JSON.stringify(symptoms),
       'Other Symptom':String(p.otherSymptom || ''),
       'Note':String(p.note || ''),
@@ -665,69 +623,61 @@ function submitVisit_(p,s) {
       'Clinical Alert Level':symptomSelection.clinicalAlertLevel
     };
     const currentHeader = header.getRange(1,1,1,header.getLastColumn()).getValues()[0].map(String);
-    const hrow = currentHeader.map(function(name){
+    const hrow = currentHeader.map(function(name) {
       return Object.prototype.hasOwnProperty.call(visitValues,name) ? visitValues[name] : '';
     });
 
-    // Write stock first, then records. Rollback is attempted on any error.
-    if (items.length) {
-      lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
-      stockWritten = true;
-    }
     header.getRange(header.getLastRow()+1,1,1,hrow.length).setValues([hrow]);
     if (drows.length) {
-      detail.getRange(detail.getLastRow()+1,1,drows.length,drows[0].length).setValues(drows);
-    }
-    if (trows.length) {
-      txn.getRange(txn.getLastRow()+1,1,trows.length,trows[0].length).setValues(trows);
+      const detailHeaders = detail.getRange(1,1,1,detail.getLastColumn()).getValues()[0].map(String);
+      const detailValues = drows.map(function(row) {
+        return detailHeaders.map(function(name) {
+          return Object.prototype.hasOwnProperty.call(row,name) ? row[name] : '';
+        });
+      });
+      detail.getRange(detail.getLastRow()+1,1,detailValues.length,detailHeaders.length)
+        .setValues(detailValues);
     }
 
     clearCache_(SHEETS.DISPENSE_HEADER);
     clearCache_(SHEETS.DISPENSE_ITEMS);
-    clearCache_(SHEETS.STOCK_TRANSACTION);
-    syncItemQty_(lotData);
-    audit_(s,'DISPENSE','DISPENSE',visitId,'SUCCESS');
+    audit_(s,'ORDER_LOG','VISIT',visitId,'SUCCESS');
 
-    const resultItems = Object.keys(requestedByItem).map(function(code){
-      return {itemCode:code,dispensedQty:requestedByItem[code]};
-    });
-
-    shouldNotify = disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER';
+    shouldNotify = visitDate === Utilities.formatDate(new Date(),'Asia/Bangkok','yyyy-MM-dd') &&
+      (disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER');
     completedResult = {success:true,data:{
       visitId:visitId,
-      items:resultItems,
+      items:drows.map(function(row) {
+        return {itemCode:row['Item Code'],itemName:row['Item Name'],qty:row.Qty,unit:row.Unit};
+      }),
       disposition:disposition,
       status:'COMPLETED',
       recipientType:recipient.recipientType,
       derivedVisitCategory:symptomSelection.derivedCategory,
       clinicalAlertLevel:symptomSelection.clinicalAlertLevel,
-      notification:null
+      notification:!shouldNotify && (disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER')
+        ? {status:'NOT_REQUIRED',type:'HISTORICAL_VISIT'} : null
     }};
   } catch (err) {
-    // Google Sheets has no native multi-sheet transaction. If any write after stock
-    // mutation fails, restore the lot snapshot and remove rows appended by this request.
-    try {
-      if (headerLastRow !== null && detailLastRow !== null && txnLastRow !== null) {
-        if (stockWritten && lotSnapshot) {
-          const lotSheetRb = getSheet_(SHEETS.STOCK_LOT);
-          lotSheetRb.getRange(1,1,lotSnapshot.length,lotSnapshot[0].length).setValues(lotSnapshot);
-        }
-        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_HEADER), headerLastRow);
-        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_ITEMS), detailLastRow);
-        truncateAfterRow_(getSheet_(SHEETS.STOCK_TRANSACTION), txnLastRow);
-        if (lotSnapshot) syncItemQty_(lotSnapshot);
-        invalidateStockCache_();
+    // Only Visit and order-detail rows may have been appended. Inventory sheets
+    // are not touched even during rollback. No automatic network retry.
+    if (headerLastRow !== null && detailLastRow !== null) {
+      try {
+        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_HEADER),headerLastRow);
+        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_ITEMS),detailLastRow);
+        clearCache_(SHEETS.DISPENSE_HEADER);
+        clearCache_(SHEETS.DISPENSE_ITEMS);
+      } catch (rollbackErr) {
+        auditSystem_('ROLLBACK_FAILED','VISIT',String(err && err.message || err),'FAILED');
+        throw new Error('TRANSACTION_ROLLBACK_FAILED');
       }
-    } catch (rollbackErr) {
-      auditSystem_('ROLLBACK_FAILED','DISPENSE',String(err && err.message || err),'FAILED');
-      throw new Error('TRANSACTION_ROLLBACK_FAILED');
     }
     throw err;
   } finally {
     lock.releaseLock();
   }
 
-  // Notification is intentionally outside ScriptLock and outside the clinical/stock
+  // Notification is intentionally outside ScriptLock and outside Visit write
   // rollback scope. Mail latency or failure can never roll back a completed visit.
   if (completedResult && shouldNotify) {
     try {
@@ -1791,7 +1741,9 @@ function humanError_(code) {
     ITEM_NOT_FOUND:'ไม่พบรายการยา/เวชภัณฑ์',
     INSUFFICIENT_STOCK:'จำนวน Stock ไม่เพียงพอ',
     DUPLICATE_TRANSACTION:'รายการนี้ถูกบันทึกไปแล้ว',
-    INVALID_QTY:'จำนวนต้องเป็นจำนวนเต็มมากกว่า 0',
+    INVALID_QTY:'จำนวนรายการสั่งใช้ต้องมากกว่า 0 และรองรับทศนิยมไม่เกิน 3 ตำแหน่ง',
+    INVALID_VISIT_DATE:'วันที่รับบริการไม่ถูกต้อง หรือเป็นวันในอนาคต',
+    INVALID_USAGE_ENTRY:'กรุณาระบุชื่อและหน่วยของรายการบันทึกการใช้ให้ครบ',
     STOCK_LOT_NOT_FOUND:'ไม่พบ Stock Lot',
     USER_ALREADY_EXISTS:'มี Staff ID นี้อยู่แล้ว',
     USER_NOT_FOUND:'ไม่พบผู้ใช้งาน',
