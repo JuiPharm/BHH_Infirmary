@@ -462,7 +462,7 @@ function resolveVisitDateForEntry_(rawDate) {
 
 function safeUsageLogText_(value,maxLength) {
   const input = limitedText_(value,maxLength).trim();
-  // Record-only lines can originate from free text; never persist Sheets formulas.
+  // Free-text clinical orders must never persist formulas in Sheets.
   return /^[=+@-]/.test(input) ? "'" + input : input;
 }
 
@@ -507,186 +507,79 @@ function submitVisit_(p,s) {
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
 
-  // Rollback state must live outside the try block so catch can restore it.
-  let lotSnapshot = null;
+  // A Visit is a clinical/order record. This function NEVER reads or writes
+  // STOCK_LOT, STOCK_TRANSACTION, or ITEM_MASTER.QTY. Legacy recordOnly:false
+  // flags are deliberately ignored: Visit submission cannot deduct inventory.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
   let headerLastRow = null;
   let detailLastRow = null;
-  let txnLastRow = null;
-  let stockWritten = false;
   let completedResult = null;
   let shouldNotify = false;
 
   try {
-    const ss = getSpreadsheet_();
     const header = getSheet_(SHEETS.DISPENSE_HEADER);
-    ensureHeaders_(header, HEADERS.DISPENSE_HEADER);
+    ensureHeaders_(header,HEADERS.DISPENSE_HEADER);
     const detail = getSheet_(SHEETS.DISPENSE_ITEMS);
-    ensureHeaders_(detail, HEADERS.DISPENSE_ITEMS);
-    const txn = getSheet_(SHEETS.STOCK_TRANSACTION);
-    const lotSheet = getSheet_(SHEETS.STOCK_LOT);
+    ensureHeaders_(detail,HEADERS.DISPENSE_ITEMS);
 
-    if (rows_(SHEETS.DISPENSE_HEADER).some(function(x){
-      return String(x['Client Transaction ID'] || '') === clientTx;
-    })) {
-      throw new Error('DUPLICATE_TRANSACTION');
-    }
+    if (rows_(SHEETS.DISPENSE_HEADER).some(function(row) {
+      return String(row['Client Transaction ID'] || '') === clientTx;
+    })) throw new Error('DUPLICATE_TRANSACTION');
 
-    const masterRows = rows_(SHEETS.ITEM_MASTER);
-    const lotData = lotSheet.getDataRange().getValues();
-    if (!lotData.length) throw new Error('STOCK_SCHEMA_ERROR');
-
-    const lh = headerMap_(lotData[0]);
-    const plans = [];
-    const requestedByItem = {};
-    const recordedItems = [];
-
-    items.forEach(function(raw) {
+    if (items.length > 50) throw new Error('INVALID_INPUT');
+    const masterRows = items.some(function(raw) {return raw && String(raw.itemCode || '').trim();})
+      ? rows_(SHEETS.ITEM_MASTER) : [];
+    const plans = items.map(function(raw) {
       if (!raw || typeof raw !== 'object') throw new Error('INVALID_INPUT');
-      const recordOnly = raw.recordOnly === true;
       const itemCode = String(raw.itemCode || '').trim();
       const qty = Number(raw.qty);
       if (!Number.isFinite(qty) || qty <= 0 || qty > 100000 ||
-          (!recordOnly && !Number.isInteger(qty)) ||
-          (recordOnly && Math.abs(Math.round(qty * 1000) - qty * 1000) > 1e-7)) {
-        throw new Error('INVALID_QTY');
-      }
-
-      const master = itemCode ? masterRows.find(function(m) {
-        return String(m['Item Code'] || '') === itemCode && isActive_(m['Active/Inactive']);
+          Math.abs(Math.round(qty*1000)-qty*1000)>1e-7) throw new Error('INVALID_QTY');
+      const master = itemCode ? masterRows.find(function(item) {
+        return String(item['Item Code'] || '') === itemCode && isActive_(item['Active/Inactive']);
       }) : null;
-      if (!recordOnly && (!itemCode || !master)) throw new Error('ITEM_NOT_FOUND');
-      if (recordOnly && itemCode && !master) throw new Error('ITEM_NOT_FOUND');
+      if (itemCode && !master) throw new Error('ITEM_NOT_FOUND');
+      const type = master
+        ? normalizeItemType_(master['Item Type'])
+        : String(raw.itemType || '').trim().toUpperCase();
+      if (['DRUG','MEDICAL_SUPPLY'].indexOf(type) < 0) throw new Error('INVALID_INPUT');
 
-      // Non-master free text is accepted only as a MEDICAL_SUPPLY usage log.
-      // Drug records must refer to the active item master so existing allergy
-      // review and drug-safety checks cannot be bypassed by choosing record-only.
-      if (recordOnly && !itemCode && String(raw.itemType || '') !== 'MEDICAL_SUPPLY') {
-        throw new Error('RECORD_ONLY_SUPPLY_REQUIRED');
-      }
-      const customName = recordOnly && !itemCode ? safeUsageLogText_(raw.itemName,200) : '';
-      const customUnit = recordOnly ? safeUsageLogText_(raw.unit || (master && master.Unit),40) : '';
-      if (recordOnly && (!customUnit || (!master && !customName))) {
-        throw new Error('INVALID_USAGE_ENTRY');
-      }
-      const resolvedMaster = master || {
-        'Item Type':'MEDICAL_SUPPLY','Generic Name':customName,'Trade Name':'',Unit:customUnit
-      };
-      const normalizedType = normalizeItemType_(resolvedMaster['Item Type']);
-      const interventionCode = normalizedType === 'MEDICAL_SUPPLY' ? 'MEDICAL_SUPPLY' : 'MEDICATION';
-      if (interventions.indexOf(interventionCode) < 0) interventions.push(interventionCode);
+      const itemName = master ? safeUsageLogText_(
+        (master['Trade Name'] && master['Generic Name'])
+          ? master['Trade Name']+' ('+master['Generic Name']+')'
+          : (master['Trade Name'] || master['Generic Name'] || itemCode),200)
+        : safeUsageLogText_(raw.itemName,200);
+      const unit = safeUsageLogText_(raw.unit || (master && master.Unit),40);
+      if (!itemName || !unit) throw new Error('INVALID_USAGE_ENTRY');
 
-      if (recordOnly) {
-        const itemName = master
-          ? safeUsageLogText_(
-            (master['Trade Name'] && master['Generic Name'])
-              ? master['Trade Name'] + ' (' + master['Generic Name'] + ')'
-              : (master['Trade Name'] || master['Generic Name'] || itemCode),200)
-          : customName;
-        const plan = {raw:raw,master:resolvedMaster,allocations:[],recordOnly:true,
-          itemName:itemName,unit:customUnit,qty:qty};
-        plans.push(plan);
-        recordedItems.push({itemCode:itemCode,itemName:itemName,qty:qty,unit:customUnit});
-        return;
-      }
-
-      requestedByItem[itemCode] = (requestedByItem[itemCode] || 0) + qty;
-      const eligible = [];
-      for (let i=1;i<lotData.length;i++) {
-        const r = lotData[i];
-        if (String(r[lh['Item Code']] || '') !== itemCode) continue;
-        if (String(r[lh['Status']] || '').toUpperCase() === 'INACTIVE') continue;
-
-        const current = Number(r[lh['Current Qty']]) || 0;
-        const expiry = parseDate_(r[lh['Expiry Date']]);
-        if (isUsableLot_(String(r[lh['Status']] || ''), expiry, current, new Date())) {
-          eligible.push({
-            row:i,
-            lotId:String(r[lh['Stock Lot ID']] || ''),
-            expiryDate:expiry,
-            expiry:String(r[lh['Expiry Date']] || ''),
-            current:current,
-            unitCost:Number(r[lh['Unit Cost']]) || Number(master['Unit Cost']) || 0
-          });
-        }
-      }
-
-      eligible.sort(function(a,b){
-        return a.expiryDate.getTime()-b.expiryDate.getTime() ||
-               a.lotId.localeCompare(b.lotId);
-      });
-
-      const available = eligible.reduce(function(sum,x){return sum+x.current;},0);
-      if (qty > available) throw new Error('INSUFFICIENT_STOCK');
-
-      let left = qty;
-      const allocations = [];
-      eligible.forEach(function(lot){
-        if (left <= 0) return;
-        const n = Math.min(left,lot.current);
-        allocations.push(Object.assign({},lot,{qty:n}));
-        left -= n;
-      });
-
-      if (left !== 0) throw new Error('STOCK_ALLOCATION_FAILED');
-      plans.push({raw:raw,master:resolvedMaster,allocations:allocations,recordOnly:false});
+      // Safety checks keep their old contract (a plan with master Item Type),
+      // but no lot is allocated. Drug order != drug administration.
+      const resolvedMaster = master || {'Item Type':type,'Generic Name':itemName,
+        'Trade Name':'',Unit:unit};
+      return {raw:raw,master:resolvedMaster,itemCode:itemCode,itemName:itemName,
+        qty:qty,unit:unit,type:type,recordOnly:true,allocations:[]};
     });
 
     validateStudentDrugSafetyForDispense_(recipient,p,plans);
     const allergy = validateFreeTextAllergyForDispense_(recipient,p,plans);
 
-    lotSnapshot = lotData.map(function(r){return r.slice();});
     headerLastRow = header.getLastRow();
     detailLastRow = detail.getLastRow();
-    txnLastRow = txn.getLastRow();
     const visitId = 'V'+Utilities.getUuid().replace(/-/g,'').slice(0,16);
     const t = now_();
-    const drows = [];
-    const trows = [];
-
-    plans.forEach(function(plan){
-      if (plan.recordOnly) {
-        drows.push({
-          'Dispense Item ID':'DI'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
-          'Visit ID':visitId,
-          'Item Code':String(plan.raw.itemCode || ''),
-          'Item Type':String(plan.master['Item Type'] || ''),
-          'Item Name':plan.itemName,
-          'Qty':plan.qty,
-          'Unit':plan.unit,
-          'Created At':t,
-          'Stock Effect':'RECORD_ONLY'
-        });
-        return; // No FEFO allocation, no stock transaction and no stock mutation.
-      }
-      plan.allocations.forEach(function(a){
-        const r = lotData[a.row];
-        const before = Number(r[lh['Current Qty']]) || 0;
-        const after = before - a.qty;
-        if (after < 0) throw new Error('STOCK_CHANGED');
-        r[lh['Current Qty']] = after;
-
-        const itemName = (plan.master['Trade Name'] && plan.master['Generic Name'])
-          ? (plan.master['Trade Name'] + ' (' + plan.master['Generic Name'] + ')')
-          : (plan.master['Trade Name'] || plan.master['Generic Name'] || plan.raw.itemName || plan.raw.itemCode || '');
-
-        drows.push({
-          'Dispense Item ID':'DI'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
-          'Visit ID':visitId,
-          'Item Code':String(plan.raw.itemCode),
-          'Item Type':String(plan.master['Item Type'] || plan.raw.itemType || ''),
-          'Item Name':itemName,
-          'Qty':a.qty,
-          'Unit':String(plan.master.Unit || ''),
-          'Created At':t,
-          'Stock Effect':'DEDUCT'
-        });
-
-        trows.push([
-          'ST'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
-          'DISPENSE',visitId,String(plan.raw.itemCode),a.lotId,a.qty,
-          before,after,a.unitCost,'Dispense',s.staffId,t
-        ]);
-      });
+    const drows = plans.map(function(plan) {
+      return {
+        'Dispense Item ID':'DI'+Utilities.getUuid().replace(/-/g,'').slice(0,12),
+        'Visit ID':visitId,
+        'Item Code':plan.itemCode,
+        'Item Type':plan.type,
+        'Item Name':plan.itemName,
+        'Qty':plan.qty,
+        'Unit':plan.unit,
+        'Created At':t,
+        'Stock Effect':'ORDER_ONLY'
+      };
     });
 
     const vitals = validateVitals_(rawVitals);
@@ -733,47 +626,33 @@ function submitVisit_(p,s) {
       'Clinical Alert Level':symptomSelection.clinicalAlertLevel
     };
     const currentHeader = header.getRange(1,1,1,header.getLastColumn()).getValues()[0].map(String);
-    const hrow = currentHeader.map(function(name){
+    const hrow = currentHeader.map(function(name) {
       return Object.prototype.hasOwnProperty.call(visitValues,name) ? visitValues[name] : '';
     });
 
-    // Write stock first, then records. Rollback is attempted on any error.
-    if (trows.length) {
-      lotSheet.getRange(1,1,lotData.length,lotData[0].length).setValues(lotData);
-      stockWritten = true;
-    }
     header.getRange(header.getLastRow()+1,1,1,hrow.length).setValues([hrow]);
     if (drows.length) {
       const detailHeaders = detail.getRange(1,1,1,detail.getLastColumn()).getValues()[0].map(String);
       const detailValues = drows.map(function(row) {
-        return detailHeaders.map(function(h) {
-          return Object.prototype.hasOwnProperty.call(row,h) ? row[h] : '';
+        return detailHeaders.map(function(name) {
+          return Object.prototype.hasOwnProperty.call(row,name) ? row[name] : '';
         });
       });
-      detail.getRange(detail.getLastRow()+1,1,detailValues.length,detailHeaders.length).setValues(detailValues);
-    }
-    if (trows.length) {
-      txn.getRange(txn.getLastRow()+1,1,trows.length,trows[0].length).setValues(trows);
+      detail.getRange(detail.getLastRow()+1,1,detailValues.length,detailHeaders.length)
+        .setValues(detailValues);
     }
 
     clearCache_(SHEETS.DISPENSE_HEADER);
     clearCache_(SHEETS.DISPENSE_ITEMS);
-    clearCache_(SHEETS.STOCK_TRANSACTION);
-    if (trows.length) syncItemQty_(lotData);
-    audit_(s,trows.length ? 'DISPENSE' : 'RECORD_USE','DISPENSE',visitId,'SUCCESS');
+    audit_(s,'ORDER_LOG','VISIT',visitId,'SUCCESS');
 
-    const resultItems = Object.keys(requestedByItem).map(function(code){
-      return {itemCode:code,dispensedQty:requestedByItem[code]};
-    });
-
-    // Never send a new urgent referral alert for a historical/backdated Visit.
-    // Historical care is documented but not presented as a current emergency.
     shouldNotify = visitDate === Utilities.formatDate(new Date(),'Asia/Bangkok','yyyy-MM-dd') &&
       (disposition === 'REFER_HOSPITAL' || disposition === 'EMERGENCY_TRANSFER');
     completedResult = {success:true,data:{
       visitId:visitId,
-      items:resultItems,
-      recordedItems:recordedItems,
+      items:drows.map(function(row) {
+        return {itemCode:row['Item Code'],itemName:row['Item Name'],qty:row.Qty,unit:row.Unit};
+      }),
       disposition:disposition,
       status:'COMPLETED',
       recipientType:recipient.recipientType,
@@ -783,30 +662,25 @@ function submitVisit_(p,s) {
         ? {status:'NOT_REQUIRED',type:'HISTORICAL_VISIT'} : null
     }};
   } catch (err) {
-    // Google Sheets has no native multi-sheet transaction. If any write after stock
-    // mutation fails, restore the lot snapshot and remove rows appended by this request.
-    try {
-      if (headerLastRow !== null && detailLastRow !== null && txnLastRow !== null) {
-        if (stockWritten && lotSnapshot) {
-          const lotSheetRb = getSheet_(SHEETS.STOCK_LOT);
-          lotSheetRb.getRange(1,1,lotSnapshot.length,lotSnapshot[0].length).setValues(lotSnapshot);
-        }
-        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_HEADER), headerLastRow);
-        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_ITEMS), detailLastRow);
-        truncateAfterRow_(getSheet_(SHEETS.STOCK_TRANSACTION), txnLastRow);
-        if (stockWritten && lotSnapshot) syncItemQty_(lotSnapshot);
-        if (stockWritten) invalidateStockCache_();
+    // Only Visit and order-detail rows may have been appended. Inventory sheets
+    // are not touched even during rollback. No automatic network retry.
+    if (headerLastRow !== null && detailLastRow !== null) {
+      try {
+        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_HEADER),headerLastRow);
+        truncateAfterRow_(getSheet_(SHEETS.DISPENSE_ITEMS),detailLastRow);
+        clearCache_(SHEETS.DISPENSE_HEADER);
+        clearCache_(SHEETS.DISPENSE_ITEMS);
+      } catch (rollbackErr) {
+        auditSystem_('ROLLBACK_FAILED','VISIT',String(err && err.message || err),'FAILED');
+        throw new Error('TRANSACTION_ROLLBACK_FAILED');
       }
-    } catch (rollbackErr) {
-      auditSystem_('ROLLBACK_FAILED','DISPENSE',String(err && err.message || err),'FAILED');
-      throw new Error('TRANSACTION_ROLLBACK_FAILED');
     }
     throw err;
   } finally {
     lock.releaseLock();
   }
 
-  // Notification is intentionally outside ScriptLock and outside the clinical/stock
+  // Notification is intentionally outside ScriptLock and outside Visit write
   // rollback scope. Mail latency or failure can never roll back a completed visit.
   if (completedResult && shouldNotify) {
     try {
@@ -1870,10 +1744,9 @@ function humanError_(code) {
     ITEM_NOT_FOUND:'ไม่พบรายการยา/เวชภัณฑ์',
     INSUFFICIENT_STOCK:'จำนวน Stock ไม่เพียงพอ',
     DUPLICATE_TRANSACTION:'รายการนี้ถูกบันทึกไปแล้ว',
-    INVALID_QTY:'จำนวนไม่ถูกต้อง: รายการตัด Stock ต้องเป็นจำนวนเต็ม ส่วนบันทึกการใช้รองรับทศนิยม 3 ตำแหน่ง',
+    INVALID_QTY:'จำนวนรายการสั่งใช้ต้องมากกว่า 0 และรองรับทศนิยมไม่เกิน 3 ตำแหน่ง',
     INVALID_VISIT_DATE:'วันที่รับบริการไม่ถูกต้อง หรือเป็นวันในอนาคต',
     INVALID_USAGE_ENTRY:'กรุณาระบุชื่อและหน่วยของรายการบันทึกการใช้ให้ครบ',
-    RECORD_ONLY_SUPPLY_REQUIRED:'รายการ Free Text แบบไม่ตัด Stock รองรับเฉพาะเวชภัณฑ์ หากเป็นยากรุณาเลือกจาก Item Master',
     STOCK_LOT_NOT_FOUND:'ไม่พบ Stock Lot',
     USER_ALREADY_EXISTS:'มี Staff ID นี้อยู่แล้ว',
     USER_NOT_FOUND:'ไม่พบผู้ใช้งาน',
