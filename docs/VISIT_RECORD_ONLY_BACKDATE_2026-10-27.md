@@ -1,48 +1,36 @@
-# BHH Infirmary — Record-only usage + backdated Visit (2026-10-27)
+# BHH Infirmary — Visit Order Log Only + Backdated Visit
 
-## Change summary
-- New Visit displays a calendar date field with Bangkok **Today** as default, and a Today reset button.
-- Users with current Visit permissions may select any valid historical date from year 2000 up to Today. Future dates, invalid calendar dates and malformed dates are rejected in the browser **and** backend.
-- Each Visit item can be either:
-  - `DEDUCT`: existing Item Master/FEFO stock-deduction path. Quantities are positive integers no greater than usable stock.
-  - `RECORD_ONLY`: writes quantity (up to three decimals), editable unit, name and item type in `DISPENSE_ITEMS`, but **does not change STOCK_LOT, ITEM_MASTER.QTY or STOCK_TRANSACTION**.
-- Both modes can be combined in one Visit. Existing historical dispense rows with a blank `Stock Effect` should be interpreted as legacy `DEDUCT` for display/reporting.
-- Record-only supports selected active Item Master entries even with stock zero. Free-text record-only lines may be **medical supplies only**. Drugs must be selected from Item Master so backend student allergy/safety review still runs; stock-recording mode is **not** a drug safety bypass.
-- Record-only item names/units beginning with spreadsheet-formula characters are escaped before Sheets writes.
+## Final scope (corrected 2026-10-28)
 
-## Data contracts
-- `submitVisit` request gains optional `visitDate` in YYYY-MM-DD; omitted dates remain Today for legacy clients.
-- Each `items[]` can pass `recordOnly: true`. Unspecified/false continues stock-deducting.
-- The appended `DISPENSE_ITEMS` field is `Stock Effect`, with explicit `RECORD_ONLY` or `DEDUCT`; existing data must not be rewritten.
-- `Visit Date` is the selected service date. For historical entries `Visit Time` remains empty rather than falsely reporting current clock time. `Created At`, `Completed At` and `Staff ID` continue tracking actual submit time/user. A Date update is **not** a replacement for the audit timestamp.
-- Historical `REFER_HOSPITAL` or `EMERGENCY_TRANSFER` records **do not trigger new referral/emergency emails**; returned `notification.type = HISTORICAL_VISIT`. Today's existing email behavior is preserved.
-- Idempotency and rollback remain part of the normal Visit transaction; no automatic retry after uncertain response.
+**Visit records medication / medical-supply ordering ONLY. There is no Stock deduction option.**
 
-## Deployment constraints
-- **Review branch only**: do not auto-merge into `main`, deploy GAS Production or migrate D1 as part of this change.
-- Coordinate against open P1 Cloudflare Gateway draft PR #10 before integration; P1/UAT_READ_ONLY deliberately blocks direct Visit writes. Never relax that gate to test this feature.
-- Before release: backup real Sheets; create isolated synthetic copy; deploy updated GAS source to dedicated GAS Sandbox and point only isolated preview to it. Run the app's read-only/backend version gates as defined by its current branch. Do not call `setupSystem()` against live Sheets.
-- On GAS Sandbox ensure only `DISPENSE_ITEMS` has the new `Stock Effect` column appended, preserving all existing columns and rows.
-- Test one stock-only Visit, one free-text record-only Visit, one master-linked record-only medicine with allergy review, one mixed Visit, one backdated referral and rejected future date.
-- For each test reconcile Visit Header, Dispense Items, Stock Transaction, Stock Lot and Item Master before/after, and notification log. Also test duplicate transaction and forced write failure/rollback before production change.
-- Review governance of historical entries (authorization, maximum backdating window, reporting criteria, addendum/corrections) before enabling production writes.
-- Do not treat passing CI/in-memory mock tests as end-to-end live GAS UAT.
+- User picks an active Item Master item or enters a free-text DRUG / MEDICAL_SUPPLY name.
+- User records order quantity (positive, up to three decimal digits) and freely editable unit.
+- Frontend shows **no Stock/FEFO toggle**, no available balance, no stock warnings, no inventory calculations and no Lot selection.
+- Clicking Save Visit writes the Visit header and clinical order details only. The server ignores any old `recordOnly:false` or legacy `submitDispense` intent: Visit **cannot** mutate `STOCK_LOT`, `ITEM_MASTER.QTY`, `STOCK_TRANSACTION`, or call `syncItemQty_`.
+- `DISPENSE_ITEMS` retains its legacy name for compatibility, with an appended `Stock Effect` column. All new Visit order records use **`ORDER_ONLY`**, including medication records. The entry means *ordered/recorded*, not necessarily administered/dispensed.
+- The staff member and `Created At` / `Completed At` are recorded as actual audit fields. The selected `Visit Date` is calendar based, default Bangkok Today. Historical dates allowed, future dates rejected. Historical `Visit Time` blank rather than made up.
+- User's selected Interventions are preserved; simply recording a medication order does **not** automatically claim administration.
+- The pre-existing student safety review and free-text-recipient drug allergy acknowledgement are still enforced when DRUG entries are present. Do not treat this basic check as a complete clinical allergy engine.
+- Historical REFERRAL / EMERGENCY Visit records do not emit an urgent notification as if current. Current-day referral behavior remains unchanged.
 
-## Known reporting implication
-- Dashboard totals keyed on `Visit Date` include backdated visits in that historical period. Reporting must not treat `RECORD_ONLY` usage as a stock transaction or infer stock depletion from `DISPENSE_ITEMS` aggregates. For Stock consumption only sum `STOCK_TRANSACTION` rows with `Transaction Type=DISPENSE`.
+## Data contract
 
-## Acceptance criteria
-1. Default Visit Date equals Bangkok Today; calendar can choose yesterday; tomorrow rejected.
-2. Existing FEFO dispensing still deducts stock and writes matching transaction(s).
-3. Record-only free text supply with 0.5 pack persists with correct date/unit and **zero** stock movement.
-4. Master-linked drug in record-only mode is validated for existing drug safety and allergy review before submission.
-5. Mixed-mode Visit deducts only DEDUCT lines; all usage lines appear in Visit history.
-6. Historical Referral/Emergency Visit does not send an urgent message as if the event occurred now.
-7. Schema append never truncates or rearranges old data; failed or duplicate write cannot create a second Visit.
+- Versioned submit action: `submitVisitV250`; GAS `API_VERSION=2.5.0`, frontend `REQUIRED_API_VERSION=2.5.0`. Older GAS refuses `submitVisitV250` instead of silently deducting Stock.
+- The 2.5.0 GAS `submitVisit`, `submitDispense` (compatibility alias) and `submitVisitV250` all use the **same order-only server path**.
+- Request: `visitDate: YYYY-MM-DD`, `items:[{ itemCode?:string, itemName?:string, itemType:'DRUG'|'MEDICAL_SUPPLY', qty:number, unit:string }]`, `clientTransactionId` plus existing clinical Visit fields.
+- `Stock Effect=ORDER_ONLY` on new order lines. Historical rows with blank column are not rewritten. Existing stock modules outside Visit remain intact; this feature does not delete unrelated inventory tools.
 
-## Version compatibility hard stop
-- GAS `API_VERSION` and frontend `REQUIRED_API_VERSION` must **both be 2.5.0**. Never deploy this UI against a 2.4.1 GAS writer: that older writer may **deduct inventory** from an Item Master line even if the browser sends `recordOnly:true`.
-- Deploy only to a synthetic isolated environment after API-version gate verification. Do not point the current Production browser at an incompatible writer, or change its version string without deploying the matching code.
+## Required verification before production
 
-- In addition to the health version gate, the new frontend posts to **`submitVisitV250`**. Old GAS 2.4.1 does not recognize this action and must reject the request rather than misinterpreting `recordOnly:true` as an inventory dispense.
-- The 2.5.0 server keeps legacy `submitVisit` for old clients; the new Visit UI uses only `submitVisitV250`. When later integrating Cloudflare Gateway PR #10, explicitly authorize the versioned action only after its own gated UAT.
+1. The UI has no Stock toggle and no available-quantity text in the Visit order section.
+2. Search/add an Item Master entry with QTY zero; **order must still save**.
+3. Add a free-text drug order and a free-text supply order, with quantity and unit.
+4. Backdate Visit, preserve selected date and today's audit timestamp, reject future dates.
+5. On a synthetic isolated GAS Sandbox, inspect `STOCK_LOT`, `STOCK_TRANSACTION` and `ITEM_MASTER.QTY` before and after; **all unchanged**, including for a request with `recordOnly:false` and legacy compatibility action.
+6. Duplicate transaction and failed partial write cannot cause duplicate Visit/order detail records.
+7. Clinical student allergy review / free-text allergy validation remains enforced for DRUG orders.
+8. Verify referral alert handling and historical notification suppression.
+9. Check existing order history and downstream dashboards understand `ORDER_ONLY` is not dispensed stock or clinical administration.
+
+Do not merge or deploy to Production until reviewed and synthetic live GAS integration UAT passes. Existing P1 Cloudflare Gateway PR #10 may reject the versioned new action until its allowlist is explicitly updated and its safety gates are satisfied. No production writer cutover or D1 migration is part of this PR.
