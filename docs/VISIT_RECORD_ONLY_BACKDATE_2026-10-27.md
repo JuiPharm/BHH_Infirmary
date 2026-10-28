@@ -34,3 +34,12 @@
 9. Check existing order history and downstream dashboards understand `ORDER_ONLY` is not dispensed stock or clinical administration.
 
 Do not merge or deploy to Production until reviewed and synthetic live GAS integration UAT passes. Existing P1 Cloudflare Gateway PR #10 may reject the versioned new action until its allowlist is explicitly updated and its safety gates are satisfied. No production writer cutover or D1 migration is part of this PR.
+
+## Deployment topology verification — 2026-10-28
+
+- **Actual active Cloudflare Worker:** `bhh-infirmary-prod` (account confirmed via Cloudflare account API), configured with `API_VERSION=3.0.0`, `ENVIRONMENT=production`, `DB` D1 binding, and Cloudflare `ASSETS` binding. It is a *different v3 application* from this older React/GAS branch.
+- **This branch targets a legacy React + Google Apps Script backend**, where `frontend/.env.production` / GitHub Pages workflow are configured for a GAS /exec endpoint. Its new frontend requires GAS API `2.5.0` and action `submitVisitV250`, while the legacy main branch uses `2.4.1`.
+- The Cloudflare Worker v3 deployment uses bundled modules under `src/backend/` and D1; those source modules are **not present** in the GitHub repository `main` or this branch. Cloudflare Worker state is NOT evidence that the GAS 2.5.0 release is installed.
+- **Do not merge PR #11 to main, trigger the GitHub Pages workflow, overwrite `bhh-infirmary-prod`, or change the Worker D1 bindings** to claim release of the new feature. That would mix incompatible codebases or create a broken production Visit workflow.
+- A correct release requires locating/recovering the *Cloudflare v3 source repository* and implementing order-only storage + Calendar there, with v3-specific integration tests, before deploying the matching v3 Worker + static assets and confirming the D1 order rows without stock mutations. Alternatively, an intentionally chosen legacy GAS release requires independently deploying and verifying GAS 2.5.0 first; that is **not** the active Cloudflare v3 production deployment.
+- Cloudflare P1 preview `bhh-infirmary-p1-gateway-preview` remains `UAT_READ_ONLY`, separate from v3 Production, and is not an order-entry production backend.
