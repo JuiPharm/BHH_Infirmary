@@ -504,9 +504,6 @@ function submitVisit_(p,s) {
   const allowedDisposition = ['RETURN_TO_CLASS','OBSERVATION','SEND_HOME','PARENT_PICKUP','REFER_CLINIC','REFER_HOSPITAL','EMERGENCY_TRANSFER','OTHER'];
   if (allowedDisposition.indexOf(disposition) < 0) throw new Error('INVALID_DISPOSITION');
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(15000);
-
   // A Visit is a clinical/order record. This function NEVER reads or writes
   // STOCK_LOT, STOCK_TRANSACTION, or ITEM_MASTER.QTY. Legacy recordOnly:false
   // flags are deliberately ignored: Visit submission cannot deduct inventory.
