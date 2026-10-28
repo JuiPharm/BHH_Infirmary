@@ -68,11 +68,19 @@ function harness() {
   let seenPlans = [];
   ctx.getSpreadsheet_ = () => ({});
   ctx.getSheet_ = (name) => {
+    if (name === 'STOCK_LOT' || name === 'STOCK_TRANSACTION') {
+      throw Error('INVENTORY_ACCESS_FORBIDDEN');
+    }
     assert.ok(sheets[name],`Unexpected sheet: ${name}`);
     return sheets[name];
   };
-  ctx.rows_ = (name) => sheets[name].grid.slice(1).map((r) =>
+  ctx.rows_ = (name) => {
+    if (name === 'STOCK_LOT' || name === 'STOCK_TRANSACTION') {
+      throw Error('INVENTORY_ACCESS_FORBIDDEN');
+    }
+    return sheets[name].grid.slice(1).map((r) =>
     Object.fromEntries(sheets[name].grid[0].map((h,i) => [h,r[i] ?? ''])));
+  };
   ctx.ensureHeaders_ = (sh,expected) => {
     const missing = expected.filter((h) => !sh.grid[0].includes(h));
     sh.grid[0].push(...missing);
@@ -91,7 +99,7 @@ function harness() {
   });
   ctx.audit_ = () => {};
   ctx.clearCache_ = () => {};
-  ctx.syncItemQty_ = () => {synced++;};
+  ctx.syncItemQty_ = () => {throw Error('INVENTORY_SYNC_FORBIDDEN');};
   ctx.invalidateStockCache_ = () => {};
   ctx.truncateAfterRow_ = (sh,last) => {sh.grid.length = last;};
   ctx.triggerReferralNotificationForVisit_ = () => {notified++;return {status:'SENT'};};
@@ -111,92 +119,106 @@ function harness() {
     get plans(){return seenPlans;}};
 }
 
-test('backdated Free Text usage writes a record only and leaves every stock balance untouched',() => {
+
+test('backdated Free Text supply order logs qty/unit without reading or writing any stock sheet',() => {
   const h = harness();
   const before = JSON.stringify(h.sheets.STOCK_LOT.grid);
   const result = h.submit([{
     itemCode:'',itemType:'MEDICAL_SUPPLY',itemName:'Gauze pad',
-    qty:0.5,unit:'pack',recordOnly:true
+    qty:0.5,unit:'pack'
   }],'2025-12-31');
   assert.equal(result.success,true);
   assert.equal(h.get('DISPENSE_HEADER')[0]['Visit Date'],'2025-12-31');
   assert.equal(h.get('DISPENSE_HEADER')[0]['Visit Time'],'');
   assert.ok(h.get('DISPENSE_HEADER')[0]['Created At']);
   const line = h.get('DISPENSE_ITEMS')[0];
-  assert.equal(line['Stock Effect'],'RECORD_ONLY');
+  assert.equal(line['Stock Effect'],'ORDER_ONLY');
   assert.equal(line.Qty,0.5);
   assert.equal(line.Unit,'pack');
-  assert.equal(h.get('STOCK_TRANSACTION').length,0);
+  assert.equal(h.sheets.STOCK_TRANSACTION.grid.length,1);
   assert.equal(JSON.stringify(h.sheets.STOCK_LOT.grid),before);
-  assert.equal(h.synced,0);
 });
 
-test('existing dispense still deducts FEFO stock and labels the dispense line',() => {
+test('legacy dispense intent and recordOnly:false can NEVER deduct stock from Visit',() => {
   const h = harness();
-  const result = h.submit([{itemCode:'SUP1',qty:2}],'2025-12-31');
+  const before = JSON.stringify(h.sheets.STOCK_LOT.grid);
+  const result = h.submit([{itemCode:'SUP1',qty:2,recordOnly:false}],'2025-12-31');
   assert.equal(result.success,true);
-  assert.equal(h.get('STOCK_LOT')[0]['Current Qty'],8);
-  assert.equal(h.get('STOCK_TRANSACTION').length,1);
-  assert.equal(h.get('DISPENSE_ITEMS')[0]['Stock Effect'],'DEDUCT');
-  assert.equal(h.synced,1);
+  assert.equal(JSON.stringify(h.sheets.STOCK_LOT.grid),before);
+  assert.equal(h.sheets.STOCK_TRANSACTION.grid.length,1);
+  assert.equal(h.get('DISPENSE_ITEMS')[0]['Stock Effect'],'ORDER_ONLY');
+  assert.equal(h.get('DISPENSE_ITEMS')[0].Qty,2);
 });
 
-test('mixed mode affects only tracked lines; record-only master drug still goes through safety plans',() => {
+test('master drug and free text drug are both logged without inventory movement but pass through allergy safety checks',() => {
   const h = harness();
+  const before = JSON.stringify(h.sheets.STOCK_LOT.grid);
   const result = h.submit([
-    {itemCode:'SUP1',qty:2,recordOnly:false},
-    {itemCode:'DRUG1',qty:1,unit:'dose',recordOnly:true},
-    {itemCode:'',itemName:'Cotton',itemType:'MEDICAL_SUPPLY',qty:1.25,unit:'g',recordOnly:true}
+    {itemCode:'SUP1',qty:2},
+    {itemCode:'DRUG1',qty:1,unit:'dose',recordOnly:false},
+    {itemCode:'',itemName:'Unlisted medication',itemType:'DRUG',qty:1.25,unit:'mL'},
+    {itemCode:'',itemName:'Cotton',itemType:'MEDICAL_SUPPLY',qty:1.5,unit:'g'}
   ],'2025-12-31');
   assert.equal(result.success,true);
-  assert.equal(h.get('STOCK_LOT')[0]['Current Qty'],8);
-  assert.equal(h.get('STOCK_LOT')[1]['Current Qty'],10);
-  assert.equal(h.get('STOCK_TRANSACTION').length,1);
-  assert.equal(h.get('DISPENSE_ITEMS').length,3);
-  assert.equal(h.get('DISPENSE_ITEMS').filter((r)=>r['Stock Effect']==='RECORD_ONLY').length,2);
-  assert.equal(h.plans.some((x) => x.recordOnly && x.master['Item Type'] === 'DRUG'),true);
+  assert.equal(JSON.stringify(h.sheets.STOCK_LOT.grid),before);
+  assert.equal(h.sheets.STOCK_TRANSACTION.grid.length,1);
+  assert.equal(h.get('DISPENSE_ITEMS').length,4);
+  assert.ok(h.get('DISPENSE_ITEMS').every((line)=>line['Stock Effect']==='ORDER_ONLY'));
+  assert.equal(h.plans.filter((plan) => plan.master['Item Type'] === 'DRUG').length,2);
 });
 
-test('backdated referral creates no new email alert for a historical emergency',() => {
+test('historical referral records do not issue fresh emergency email',() => {
   const h = harness();
   const r = h.submit([{itemCode:'',itemName:'Bandage',itemType:'MEDICAL_SUPPLY',
-    qty:1,unit:'piece',recordOnly:true}],'2025-12-31','EMERGENCY_TRANSFER');
+    qty:1,unit:'piece'}],'2025-12-31','EMERGENCY_TRANSFER');
   assert.equal(r.data.notification.type,'HISTORICAL_VISIT');
   assert.equal(h.notified,0);
 });
 
-test('invalid future dates, disguised free-text drugs and bad quantities never change stock',() => {
+test('invalid future dates and invalid quantity/type do not write Visit or access stock',() => {
   const h = harness();
   const before = JSON.stringify(h.sheets.STOCK_LOT.grid);
-  const day = vm.runInContext("Utilities.formatDate(new Date(),getTimeZone_(),'yyyy-MM-dd')",h.ctx);
+  const day = vm.runInContext("Utilities.formatDate(new Date(),'Asia/Bangkok','yyyy-MM-dd')",h.ctx);
   const tomorrow = new Date(day+'T00:00:00Z');
   tomorrow.setUTCDate(tomorrow.getUTCDate()+1);
   assert.throws(()=>h.submit([],tomorrow.toISOString().slice(0,10)),/INVALID_VISIT_DATE/);
   assert.throws(()=>h.submit([{
-    itemCode:'',itemName:'Unknown medicine',itemType:'DRUG',
-    qty:1,unit:'tablet',recordOnly:true
-  }],day),/RECORD_ONLY_SUPPLY_REQUIRED/);
-  assert.throws(()=>h.submit([{
     itemCode:'',itemName:'Bandage',itemType:'MEDICAL_SUPPLY',
-    qty:-1,unit:'piece',recordOnly:true
+    qty:-1,unit:'piece'
   }],day),/INVALID_QTY/);
+  assert.throws(()=>h.submit([{
+    itemCode:'',itemName:'Unknown',itemType:'UNKNOWN',
+    qty:1,unit:'piece'
+  }],day),/INVALID_INPUT/);
   assert.equal(JSON.stringify(h.sheets.STOCK_LOT.grid),before);
   assert.equal(h.get('DISPENSE_HEADER').length,0);
+  assert.equal(h.get('DISPENSE_ITEMS').length,0);
 });
 
-test('free text beginning with a spreadsheet formula is stored as safe text',() => {
+test('Free Text order names and units beginning with formula characters are stored safely',() => {
   const h = harness();
-  h.submit([{itemCode:'',itemName:'=1+1',itemType:'MEDICAL_SUPPLY',
-    qty:1,unit:'=CMD()',recordOnly:true}],'2025-12-31');
+  h.submit([{itemCode:'',itemName:'=1+1',itemType:'DRUG',
+    qty:1,unit:'=CMD()'}],'2025-12-31');
   const line = h.get('DISPENSE_ITEMS')[0];
   assert.equal(line['Item Name'],"'=1+1");
   assert.equal(line.Unit,"'=CMD()");
 });
 
-test('new frontend uses a versioned mutation action absent from the 2.4.1 backend',() => {
+test('versioned Visit write action cannot accidentally hit the legacy stock-deducting GAS',() => {
   const newClient = readFileSync(resolve(import.meta.dirname,
     '../../frontend/src/features/clinical/api.ts'),'utf8');
   assert.match(source,/case 'submitVisitV250': return submitVisit_\(/);
   assert.match(newClient,/api<VisitSubmitP4Result>\('submitVisitV250'/);
   assert.doesNotMatch(newClient,/api<VisitSubmitP4Result>\('submitVisit',/);
+});
+
+test('every Visit submission including compatibility alias is implemented with NO stock mutation calls',() => {
+  const submitSource = source.slice(source.indexOf('function submitVisit_(p,s) {'),
+    source.indexOf('/* =========================\n   DISPENSE HISTORY'));
+  assert.doesNotMatch(submitSource, /getSheet_\(SHEETS\.STOCK_LOT\)/);
+  assert.doesNotMatch(submitSource, /getSheet_\(SHEETS\.STOCK_TRANSACTION\)/);
+  assert.doesNotMatch(submitSource, /syncItemQty_\(/);
+  assert.doesNotMatch(submitSource, /lotSheet\.getRange/);
+  assert.match(submitSource, /'Stock Effect':'ORDER_ONLY'/);
+  assert.match(source,/function submitDispense_\(p,s\)\s*{\s*return submitVisit_\(p,s\)/);
 });
